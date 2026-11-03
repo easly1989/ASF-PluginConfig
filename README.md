@@ -5,7 +5,7 @@ configuration of other installed plugins. Each plugin that wants a form embeds a
 builds the form from it and writes the plugin's own key in `ASF.json` or `config/<bot>.json`.
 
 > Work in progress. The design is in [issue #1](https://github.com/easly1989/ASF-PluginConfig/issues/1); this
-> version edits global settings. Per-bot settings, secrets and a raw editor follow.
+> version edits global and per-bot settings. Secrets and a raw editor follow.
 
 ## Install
 
@@ -20,11 +20,12 @@ Requires ASF 6.3.10.6 or later, with IPC enabled.
 
 ## Use
 
-Each plugin that ships a schema gets a card. Open **Global settings**, change the form and save:
+Each plugin that ships a schema gets a card. Open **Global settings**, or **Bot settings** and pick a bot, then change the form and save:
 - **Validation first.** The host checks the value against the plugin's schema. Nothing is written until every field passes; errors appear next to their fields.
 - **Only that plugin's key changes.** The host rewrites the plugin's key in `ASF.json` and keeps every other key. Keys inside the plugin's value that the schema does not know are kept too. Comments in `ASF.json` are not kept.
 - **No silent overwrite.** If `ASF.json` changed after you opened the form, for example from ASF-ui, the save is refused. Reopen the form and save again.
 - **ASF restarts to apply it.** ASF restarts after any change to `ASF.json`. If `AutoRestart` is off, it stops instead, and the page says so before you save.
+- **A bot save restarts only that bot.** Bot settings go into `config/<bot>.json`, and ASF restarts just that bot. The bot picker lists the bot config files ASF would load.
 - **Saving needs `IPCPassword`.** Saving is refused while `IPCPassword` is empty in `ASF.json`.
 
 ## For plugin authors: the schema contract
@@ -81,6 +82,8 @@ Keywords inside a schema; anything else makes the host ignore your schema and lo
 | `properties`, `required` (names among `properties`) | `object` |
 | `items` (required: a `string`, `integer`, `number` or `boolean` schema) | `array` |
 | `minimum`, `maximum` (`minimum` ≤ `maximum`) | `integer`, `number` |
+
+A `boolean` with a `default` shows as a checkbox. Without one, it shows as *Not set / Yes / No*, and *Not set* leaves the key out. Use this for a per-bot value that inherits a global one.
 
 Browsers lose digits beyond 2^53. Store a larger integer, such as a SteamID, as a `string`; the host refuses to save an `integer` above that.
 | `format`: only `uri` | `string` |

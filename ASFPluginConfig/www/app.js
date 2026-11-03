@@ -198,6 +198,51 @@ function globalEditor(plugin) {
 	return section("Global settings", plugin, body => loadForm(body, `${pluginPath(plugin)}/Global`, plugin.Global, notes));
 }
 
+function botEditor(plugin) {
+	return section("Bot settings", plugin, async body => {
+		const bots = await api("PluginConfig/Bots");
+
+		if (!bots) {
+			body.textContent = "Cannot load the bots.";
+
+			return;
+		}
+
+		if (bots.length === 0) {
+			body.textContent = "ASF has no bot config files.";
+
+			return;
+		}
+
+		const id = `bot-${plugin.ConfigKey}`;
+		const label = document.createElement("label");
+		label.htmlFor = id;
+		label.textContent = "Bot";
+		const picker = document.createElement("select");
+		picker.id = id;
+
+		for (const bot of bots) {
+			picker.append(new Option(bot, bot));
+		}
+
+		const formHost = document.createElement("div");
+
+		const picked = () => {
+			const bot = picker.value;
+			const notes = { before: `Saving writes config/${bot}.json, and ASF restarts that bot to apply it.`, after: `Saved to config/${bot}.json. ASF is restarting ${bot} to apply it.` };
+
+			return loadForm(formHost, `${pluginPath(plugin)}/Bots/${encodeURIComponent(bot)}`, plugin.Bot, notes);
+		};
+
+		picker.addEventListener("change", () => picked().catch(reportError));
+		const field = document.createElement("div");
+		field.className = "field";
+		field.append(label, picker);
+		body.replaceChildren(field, formHost);
+		await picked();
+	});
+}
+
 function renderPlugins(plugins) {
 	pluginList.replaceChildren();
 
@@ -227,6 +272,10 @@ function renderPlugins(plugins) {
 
 		if (plugin.Global) {
 			card.append(globalEditor(plugin));
+		}
+
+		if (plugin.Bot) {
+			card.append(botEditor(plugin));
 		}
 
 		const item = document.createElement("li");

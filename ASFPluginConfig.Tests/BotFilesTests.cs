@@ -14,7 +14,7 @@ internal sealed class BotFilesTests {
 		Directory = Path.Combine(Path.GetTempPath(), $"pluginconfig-bots-{Guid.NewGuid():N}");
 		System.IO.Directory.CreateDirectory(Directory);
 
-		foreach (string file in (string[]) ["ASF.json", "main.json", "Alt.json", ".hidden.json", "main.db", "IPC.config", "ASF.json.pluginconfig.tmp"]) {
+		foreach (string file in (string[]) ["ASF.json", "main.json", "Alt.json", ".hidden.json", "main.db", "IPC.config", "ASF.json.pluginconfig.tmp", "dupe.json", "DUPE.json"]) {
 			File.WriteAllText(Path.Combine(Directory, file), "{}");
 		}
 	}
@@ -23,7 +23,15 @@ internal sealed class BotFilesTests {
 	public void Cleanup() => System.IO.Directory.Delete(Directory, true);
 
 	[TestMethod]
-	internal void ListsOnlyBotConfigs() => Assert.AreEqual("Alt,main", string.Join(",", BotFiles.List(Directory)));
+	internal void ListsOnlyBotConfigs() {
+		// On a case-insensitive file system DUPE.json overwrote dupe.json and one bot remains; otherwise both are hidden
+		string expected = File.Exists(Path.Combine(Directory, "dupe.json")) && (System.IO.Directory.GetFiles(Directory, "*upe.json").Length == 1) ? "Alt,dupe,main" : "Alt,main";
+
+		Assert.AreEqual(expected, string.Join(",", BotFiles.List(Directory)));
+	}
+
+	[TestMethod]
+	internal void AMissingDirectoryListsNothing() => Assert.IsEmpty(BotFiles.List(Path.Combine(Directory, "absent")));
 
 	[TestMethod]
 	internal void ResolvesAListedBot() => Assert.AreEqual(Path.Combine(Directory, "main.json"), BotFiles.PathOf(Directory, "main"));

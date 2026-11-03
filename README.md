@@ -83,7 +83,7 @@ Keywords inside a schema; anything else makes the host ignore your schema and lo
 | `items` (required: a `string`, `integer`, `number` or `boolean` schema) | `array` |
 | `minimum`, `maximum` (`minimum` ≤ `maximum`) | `integer`, `number` |
 
-A `boolean` with a `default` shows as a checkbox. Without one, it shows as *Not set / Yes / No*, and *Not set* leaves the key out. Use this for a per-bot value that inherits a global one.
+A `boolean` with a `default` shows as a checkbox. Without one, it shows as *Not set / Yes / No*, and *Not set* leaves the key out. Use this for a per-bot value that inherits a global one: a checkbox always writes `true` or `false`.
 
 Browsers lose digits beyond 2^53. Store a larger integer, such as a SteamID, as a `string`; the host refuses to save an `integer` above that.
 | `format`: only `uri` | `string` |

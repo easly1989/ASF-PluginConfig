@@ -105,6 +105,7 @@ public sealed class PluginConfigController : ArchiController {
 
 		return snapshot.Outcome switch {
 			ConfigFile.Outcome.Written => Ok(new GenericResponse<ConfigValue>(new ConfigValue(snapshot.Value, snapshot.Version!))),
+			ConfigFile.Outcome.Missing => StatusCode((int) HttpStatusCode.NotFound, new GenericResponse(false, $"{Path.GetFileName(path)} does not exist")),
 			_ => StatusCode((int) HttpStatusCode.InternalServerError, new GenericResponse(false, $"{Path.GetFileName(path)} cannot be read ({snapshot.Outcome})"))
 		};
 	}
@@ -130,6 +131,7 @@ public sealed class PluginConfigController : ArchiController {
 
 		return outcome switch {
 			ConfigFile.Outcome.Written => Ok(new GenericResponse<string>(version)),
+			ConfigFile.Outcome.Missing => StatusCode((int) HttpStatusCode.NotFound, new GenericResponse(false, $"{file} does not exist")),
 			ConfigFile.Outcome.Stale => StatusCode((int) HttpStatusCode.Conflict, new GenericResponse(false, $"{file} changed since you loaded it; reload and try again")),
 			_ => StatusCode((int) HttpStatusCode.InternalServerError, new GenericResponse(false, $"{file} cannot be written ({outcome})"))
 		};

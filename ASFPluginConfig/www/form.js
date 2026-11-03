@@ -16,7 +16,9 @@ const SchemaForm = (() => {
 		return `${schema.title || name}${required ? " (required)" : ""}`;
 	}
 
-	function field(name, schema, value, path, required) {
+	function field(name, schema, storedValue, path, required) {
+		// A stored null means unset, as for a missing key
+		const value = storedValue ?? undefined;
 		const id = `field-${++counter}`;
 		const wrapper = element("div", { className: "field" });
 		const describedBy = [];
@@ -47,6 +49,8 @@ const SchemaForm = (() => {
 
 				if (!required) {
 					input.append(element("option", { value: "", textContent: schema.default !== undefined ? `Default (${schema.default})` : "Not set" }));
+				} else if (value === undefined && schema.default === undefined) {
+					input.append(element("option", { value: "", textContent: "Choose…", disabled: true }));
 				}
 
 				for (const option of choices) {

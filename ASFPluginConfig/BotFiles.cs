@@ -11,15 +11,22 @@ internal static class BotFiles {
 	internal static IReadOnlyList<string> List(string configDirectory) {
 		ArgumentException.ThrowIfNullOrEmpty(configDirectory);
 
-		if (!Directory.Exists(configDirectory)) {
+		IEnumerable<string> names;
+
+		try {
+			names = Directory.Exists(configDirectory) ? [.. Directory.EnumerateFiles(configDirectory, "*.json").Select(Path.GetFileNameWithoutExtension).OfType<string>()] : [];
+		} catch (Exception e) when (e is IOException or UnauthorizedAccessException) {
 			return [];
 		}
 
+		// ASF's own rules (IsValidBotName): no path tricks such as a trailing dot, and of names differing only in case ASF
+		// loads one, so the page lists none of them rather than guessing which
 		return [
-			.. Directory.EnumerateFiles(configDirectory, "*.json")
-				.Select(Path.GetFileNameWithoutExtension)
-				.OfType<string>()
-				.Where(static name => (name.Length > 0) && (name[0] != '.') && !name.Equals("ASF", StringComparison.OrdinalIgnoreCase))
+			.. names
+				.Where(static name => (name.Length > 0) && (name[0] != '.') && !name.Equals("ASF", StringComparison.OrdinalIgnoreCase) && (Path.GetRelativePath(".", name) == name))
+				.GroupBy(static name => name, StringComparer.OrdinalIgnoreCase)
+				.Where(static group => group.Count() == 1)
+				.Select(static group => group.Key)
 				.OrderBy(static name => name, StringComparer.OrdinalIgnoreCase)
 		];
 	}

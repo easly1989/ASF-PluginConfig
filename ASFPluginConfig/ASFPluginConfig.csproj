@@ -16,6 +16,11 @@
 		<ProjectReference Include="..\ArchiSteamFarm\ArchiSteamFarm\ArchiSteamFarm.csproj" ExcludeAssets="all" Private="false" />
 	</ItemGroup>
 
+	<!-- The host's own settings, discovered like any other plugin's schema -->
+	<ItemGroup>
+		<EmbeddedResource Include="config.schema.json" LogicalName="$(AssemblyName).config.schema.json" />
+	</ItemGroup>
+
 	<!-- The page ASF serves through IWebInterface, next to the DLL -->
 	<ItemGroup>
 		<Content Include="www\**" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />

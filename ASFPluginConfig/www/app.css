@@ -8,6 +8,8 @@
 	--surface: #ffffff;
 	--border: #dcdce2;
 	--error: #b42318;
+	--warning-bg: #fff4e5;
+	--warning-fg: #7a4100;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -20,6 +22,8 @@
 		--surface: #1f1f25;
 		--border: #34343c;
 		--error: #f97066;
+		--warning-bg: #3a2a12;
+		--warning-fg: #fdd9a8;
 	}
 }
 
@@ -185,4 +189,12 @@ legend {
 button[aria-disabled=true] {
 	opacity: 0.6;
 	cursor: progress;
+}
+
+.warning {
+	background: var(--warning-bg);
+	color: var(--warning-fg);
+	border-left: 4px solid currentColor;
+	border-radius: 0.375rem;
+	padding: 0.75rem 1rem;
 }

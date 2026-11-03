@@ -104,7 +104,7 @@ async function loadForm(container, path, schema, notes, message = "") {
 	let version = stored.Version;
 	const form = document.createElement("form");
 	form.noValidate = true;
-	form.append(...SchemaForm.fields(schema, stored.Value ?? {}, ""));
+	form.append(...SchemaForm.fields(schema, stored.Value ?? {}, "", new Set(stored.SetSecrets ?? [])));
 	const note = document.createElement("p");
 	note.className = "hint";
 	note.textContent = notes.before;
@@ -139,7 +139,7 @@ async function loadForm(container, path, schema, notes, message = "") {
 			const { status: code, body: answer } = await request(path, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ Value: value, Version: version })
+				body: JSON.stringify({ Value: value, Version: version, ClearSecrets: SchemaForm.clears(form) })
 			});
 
 			if (code === 401) {
@@ -157,7 +157,19 @@ async function loadForm(container, path, schema, notes, message = "") {
 
 				return;
 			} else if (code >= 200 && code < 300 && answer?.Success) {
+				// A bot save leaves ASF up, so reload to show secrets as set or not set; an ASF.json save restarts ASF
+				if (notes.reload) {
+					await loadForm(container, path, schema, notes, notes.after);
+
+					return;
+				}
+
 				version = answer.Result;
+
+				for (const input of form.querySelectorAll("input[type=password]")) {
+					input.value = "";
+				}
+
 				announce(result, notes.after);
 			} else {
 				announce(result, answer?.Message || `ASF answered ${code}.`);
@@ -240,7 +252,7 @@ function botEditor(plugin) {
 
 		const picked = () => {
 			const bot = picker.value;
-			const notes = { before: `Saving writes config/${bot}.json, and ASF restarts that bot to apply it.`, after: `Saved to config/${bot}.json. ASF is restarting ${bot} to apply it.` };
+			const notes = { before: `Saving writes config/${bot}.json, and ASF restarts that bot to apply it.`, after: `Saved to config/${bot}.json. ASF is restarting ${bot} to apply it.`, reload: true };
 
 			return loadForm(formHost, `${pluginPath(plugin)}/Bots/${encodeURIComponent(bot)}`, plugin.Bot, notes);
 		};
@@ -314,6 +326,19 @@ async function load(typed) {
 		// The focused password field is about to disappear; keep focus on the page instead of <body>
 		login.hidden = true;
 		document.querySelector("h1").focus();
+	}
+
+	const banner = document.getElementById("banner");
+
+	// Persistent on purpose: with the opt-in on, nothing but the network protects these settings
+	if (host.WritesWithoutPassword) {
+		banner.textContent = "Saving works without an IPC password (AllowWritesWithoutIPCPassword is on). Anyone who can reach ASF's IPC can change these settings, so keep it reachable only from your LAN or VPN.";
+		banner.hidden = false;
+	} else if (!host.WritesAllowed) {
+		banner.textContent = "Saving is off: set IPCPassword in ASF.json, or turn on \"Allow saving without IPCPassword\" in this plugin's settings.";
+		banner.hidden = false;
+	} else {
+		banner.hidden = true;
 	}
 
 	const plugins = await api("PluginConfig/Plugins");

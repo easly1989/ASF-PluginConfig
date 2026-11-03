@@ -16,13 +16,14 @@ const SchemaForm = (() => {
 		return `${schema.title || name}${required ? " (required)" : ""}`;
 	}
 
-	function field(name, schema, storedValue, path, required) {
+	function field(name, schema, storedValue, path, required, secretIsSet) {
 		// A stored null means unset, as for a missing key
 		const value = storedValue ?? undefined;
 		const id = `field-${++counter}`;
 		const wrapper = element("div", { className: "field" });
 		const describedBy = [];
 		let description = null;
+		let clearBox = null;
 
 		if (schema.description) {
 			description = element("p", { className: "hint", id: `${id}-hint`, textContent: schema.description });
@@ -72,11 +73,17 @@ const SchemaForm = (() => {
 				const numeric = schema.type === "integer" || schema.type === "number";
 				input = element("input", {
 					id,
-					required,
+					// An empty secret keeps the stored one, so a set secret is not required again
+					required: required && !secretIsSet,
 					type: numeric ? "number" : schema.writeOnly ? "password" : schema.format === "uri" ? "url" : "text",
-					value: value ?? "",
+					// The host never sends a secret back, so there is nothing to prefill
+					value: schema.writeOnly ? "" : value ?? "",
 					autocomplete: schema.writeOnly ? "new-password" : "off"
 				});
+
+				if (schema.writeOnly) {
+					input.placeholder = secretIsSet ? "Set. Leave empty to keep it" : "Not set";
+				}
 
 				if (numeric) {
 					input.step = schema.type === "integer" ? "1" : "any";
@@ -91,7 +98,7 @@ const SchemaForm = (() => {
 					}
 				}
 
-				if (schema.default !== undefined) {
+				if (schema.default !== undefined && !schema.writeOnly) {
 					input.placeholder = `Default: ${schema.default}`;
 				}
 			}
@@ -99,17 +106,25 @@ const SchemaForm = (() => {
 			if (!input.isConnected && !wrapper.contains(input)) {
 				wrapper.append(input);
 			}
+
+			if (schema.writeOnly && secretIsSet) {
+				const clearId = `${id}-clear`;
+				const clear = element("input", { type: "checkbox", id: clearId });
+				clear.dataset.clear = path;
+				clearBox = element("div", { className: "field checkbox" }, clear, element("label", { htmlFor: clearId, textContent: "Remove the stored value" }));
+			}
 		}
 
 		input.dataset.path = path;
 		input.setAttribute("aria-describedby", describedBy.join(" "));
 		// append() would print a null as the text "null"
-		wrapper.append(...[description, error].filter(Boolean));
+		// The secret's own hint and error stay next to its input, before the checkbox
+		wrapper.append(...[description, error, clearBox].filter(Boolean));
 
 		return wrapper;
 	}
 
-	function fields(schema, value, prefix) {
+	function fields(schema, value, prefix, setSecrets = new Set()) {
 		const nodes = [];
 		const required = new Set(schema.required ?? []);
 
@@ -126,10 +141,10 @@ const SchemaForm = (() => {
 					fieldset.append(hint);
 				}
 
-				fieldset.append(...fields(child, childValue, path));
+				fieldset.append(...fields(child, childValue, path, setSecrets));
 				nodes.push(fieldset);
 			} else {
-				nodes.push(field(name, child, childValue, path, required.has(name)));
+				nodes.push(field(name, child, childValue, path, required.has(name), setSecrets.has(path)));
 			}
 		}
 
@@ -180,6 +195,8 @@ const SchemaForm = (() => {
 				if (items.length > 0) {
 					value[name] = items.map(item => parseItem(item, child.items.type));
 				}
+			} else if (child.writeOnly && input.value === "") {
+				// Left empty: the host keeps the stored secret unless "Remove the stored value" is checked
 			} else if (input.validity?.badInput) {
 				// Not a number: send null, so the server names the field instead of the value vanishing
 				value[name] = null;
@@ -226,5 +243,10 @@ const SchemaForm = (() => {
 		return unplaced;
 	}
 
-	return { fields, read, showErrors };
+	// The secrets marked for removal
+	function clears(container) {
+		return [...container.querySelectorAll("[data-clear]:checked")].map(box => box.dataset.clear);
+	}
+
+	return { clears, fields, read, showErrors };
 })();

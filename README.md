@@ -5,7 +5,7 @@ configuration of other installed plugins. Each plugin that wants a form embeds a
 builds the form from it and writes the plugin's own key in `ASF.json` or `config/<bot>.json`.
 
 > Work in progress. The design is in [issue #1](https://github.com/easly1989/ASF-PluginConfig/issues/1); this
-> version edits global and per-bot settings. Secrets and a raw editor follow.
+> version edits global and per-bot settings, secrets included. A raw editor follows.
 
 ## Install
 
@@ -26,7 +26,18 @@ Each plugin that ships a schema gets a card. Open **Global settings**, or **Bot 
 - **No silent overwrite.** If `ASF.json` changed after you opened the form, for example from ASF-ui, the save is refused. Reopen the form and save again.
 - **ASF restarts to apply it.** ASF restarts after any change to `ASF.json`. If `AutoRestart` is off, it stops instead, and the page says so before you save.
 - **A bot save restarts only that bot.** Bot settings go into `config/<bot>.json`, and ASF restarts just that bot. The bot picker lists the bot config files ASF would load.
-- **Saving needs `IPCPassword`.** Saving is refused while `IPCPassword` is empty in `ASF.json`.
+- **Secrets stay on the server.** A secret field (`writeOnly` in the schema) is never sent to the page, only whether it is set. Leave it empty to keep the stored value, type a new one to replace it, or tick **Remove the stored value**.
+- **Saving needs `IPCPassword`, unless you opt out.** Saving is refused while `IPCPassword` is empty in `ASF.json`. If ASF's IPC is reachable only from your LAN or a VPN, you can allow saving without it (see below).
+
+### Saving without `IPCPassword`
+
+Add this to `ASF.json`, or turn on **Allow saving without IPCPassword** in this plugin's own card on the page while `IPCPassword` is still set:
+
+```json
+"ASFPluginConfig": { "AllowWritesWithoutIPCPassword": true }
+```
+
+With it on and `IPCPassword` empty, anyone who can reach ASF's IPC can change your plugins' settings. ASF logs a warning at start-up and the page shows one at the top. Secrets are still never returned. Keep IPC reachable only from networks you trust.
 
 ## For plugin authors: the schema contract
 

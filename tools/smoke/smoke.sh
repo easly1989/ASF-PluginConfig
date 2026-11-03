@@ -9,6 +9,7 @@
 # - without an IPCPassword: a save is refused with 403;
 # - without an IPCPassword but with AllowWritesWithoutIPCPassword on: ASF logs the warning, the host reports it, and a
 #   save that clears the secret is written;
+# - the update button is on the page and ASF's own POST /Api/Plugins/Update answers its request;
 # - ASF logged no error or exception in any run.
 #
 # Usage: tools/smoke/smoke.sh <unzipped-asf-release-dir> <published-plugin-dir> <published-demo-plugin-dir>
@@ -148,10 +149,21 @@ curl -fsS --max-time 20 "${ipc}/plugin-config/app.js" | grep -q 'asf-plugin-conf
 curl -fsS --max-time 20 "${ipc}/plugin-config/form.js" | grep -q 'SchemaForm' || fail "form.js is not served"
 curl -fsS --max-time 20 "${ipc}/plugin-config/app.css" | grep -q -- '--accent' || fail "app.css is not served"
 echo "OK: app.js, form.js and app.css served"
+case "$page" in
+	*'id="update"'*) echo "OK: the page has the update button" ;;
+	*) fail "the page lacks the update button" ;;
+esac
 
 status=$(curl -sS --max-time 20 -o /dev/null -w '%{http_code}' "${ipc}/Api/PluginConfig") || fail "the controller does not answer"
 [ "$status" = 401 ] || fail "without the password the controller answered $status, expected 401"
 echo "OK: 401 without the password"
+
+# The update button posts to ASF's own endpoint; with the default PluginsUpdateMode nothing is updated or downloaded
+update=$(curl -fsS --max-time 60 -X POST -H "Authentication: ${password}" -H 'Content-Type: application/json' -d '{}' "${ipc}/Api/Plugins/Update") || fail "ASF's plugin update endpoint failed"
+case "$update" in
+	*'"Success":true'*) echo "OK: ASF's plugin update endpoint answers the page's request" ;;
+	*) fail "unexpected plugin update answer: $update" ;;
+esac
 
 reply=$(curl -fsS --max-time 20 -H "Authentication: ${password}" "${ipc}/Api/PluginConfig") || fail "the controller failed with the password"
 case "$reply" in

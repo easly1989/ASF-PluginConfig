@@ -6,6 +6,9 @@ const status = document.getElementById("status");
 const login = document.getElementById("login");
 const passwordInput = document.getElementById("password");
 const pluginList = document.getElementById("plugins");
+const updates = document.getElementById("updates");
+const updateButton = document.getElementById("update");
+const updateResult = document.getElementById("update-result");
 let password = null;
 let host = null;
 
@@ -33,6 +36,7 @@ function show(message) {
 function askForPassword(message) {
 	login.hidden = false;
 	pluginList.hidden = true;
+	updates.hidden = true;
 	show(message);
 	passwordInput.focus();
 }
@@ -64,6 +68,7 @@ async function api(path) {
 		storage(s => s.removeItem(passwordKey));
 		login.hidden = true;
 		pluginList.hidden = true;
+		updates.hidden = true;
 		show("Access denied by ASF: too many wrong passwords from this address (retry in an hour), or ASF has no IPC password and you are not on localhost.");
 
 		return null;
@@ -359,12 +364,41 @@ async function load(typed) {
 	}
 
 	renderPlugins(plugins);
+	updates.hidden = false;
 	show(`${host.Name} ${host.Version} · ${plugins.length} plugin(s) with a config schema`);
 }
 
 function reportError(error) {
 	show(`Cannot reach ASF: ${error.message}`);
 }
+
+// ASF does the update itself; the host has no endpoint that downloads or installs anything
+updateButton.addEventListener("click", async () => {
+	if (updateButton.getAttribute("aria-disabled") || !window.confirm("ASF updates the plugins its settings allow, and restarts if anything changed. Update now?")) {
+		return;
+	}
+
+	updateButton.setAttribute("aria-disabled", "true");
+	announce(updateResult, "Checking for plugin updates…");
+
+	try {
+		const { status: code, body } = await request("Plugins/Update", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: "{}"
+		});
+
+		if (code === 401) {
+			askForPassword("Wrong IPC password.");
+		} else {
+			announce(updateResult, body?.Message || body?.Result || `ASF answered ${code}.`);
+		}
+	} catch (error) {
+		announce(updateResult, `Cannot reach ASF: ${error.message}`);
+	} finally {
+		updateButton.removeAttribute("aria-disabled");
+	}
+});
 
 login.addEventListener("submit", event => {
 	event.preventDefault();

@@ -1,6 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
+using System.Linq;
 using System.Security.Cryptography;
 using System.Text.Encodings.Web;
 using System.Text.Json;
@@ -43,9 +45,22 @@ internal static class ConfigFile {
 		}
 	}
 
+	// The file's top-level key names, or null when it is missing or not a JSON object
+	internal static IReadOnlyList<string>? Keys(string path) {
+		ArgumentException.ThrowIfNullOrEmpty(path);
+
+		if (!File.Exists(path) || !TryParseObject(File.ReadAllBytes(path), out JsonDocument? document)) {
+			return null;
+		}
+
+		using (document) {
+			return document.RootElement.EnumerateObject().Select(static property => property.Name).ToList();
+		}
+	}
+
 	// value null removes the key. Properties the schema does not define are carried over from the stored value, so a form
-	// that only knows the schema never drops them
-	internal static (Outcome Outcome, string? Version) Write(string path, string key, JsonElement schema, JsonElement? value, string expectedVersion) {
+	// that only knows the schema never drops them; without a schema (the raw editor) the value replaces the stored one
+	internal static (Outcome Outcome, string? Version) Write(string path, string key, JsonElement? schema, JsonElement? value, string expectedVersion) {
 		ArgumentException.ThrowIfNullOrEmpty(path);
 		ArgumentException.ThrowIfNullOrEmpty(key);
 		ArgumentNullException.ThrowIfNull(expectedVersion);
@@ -110,7 +125,7 @@ internal static class ConfigFile {
 		stream.Flush(true);
 	}
 
-	private static byte[] Rewrite(JsonElement root, string key, JsonElement schema, JsonElement? value) {
+	private static byte[] Rewrite(JsonElement root, string key, JsonElement? schema, JsonElement? value) {
 		using MemoryStream stream = new();
 
 		using (Utf8JsonWriter writer = new(stream, new JsonWriterOptions { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping, Indented = true, IndentCharacter = '\t', IndentSize = 1 })) {

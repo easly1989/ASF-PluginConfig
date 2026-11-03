@@ -93,8 +93,10 @@ async function api(path) {
 	return body.Result;
 }
 
-// Loads one stored value into a form inside container; saving posts it back with the version it was read at
-async function loadForm(container, path, schema, notes, message = "") {
+// Loads one stored value into a form inside container; saving posts it back with the version it was read at.
+// editor builds the fields from the stored value and reads the value to save; a read that throws with invalid set
+// shows its message and saves nothing
+async function loadForm(container, path, editor, notes, message = "") {
 	// A newer load into the same container (another bot picked) wins; an older one that answers late is dropped
 	const ticket = container.loadTicket = (container.loadTicket ?? 0) + 1;
 	const current = () => container.loadTicket === ticket;
@@ -119,7 +121,7 @@ async function loadForm(container, path, schema, notes, message = "") {
 	const version = stored.Version;
 	const form = document.createElement("form");
 	form.noValidate = true;
-	form.append(...SchemaForm.fields(schema, stored.Value ?? {}, "", new Set(stored.SetSecrets ?? [])));
+	form.append(...editor.build(stored));
 	const note = document.createElement("p");
 	note.className = "hint";
 	note.textContent = notes.before;
@@ -157,11 +159,11 @@ async function loadForm(container, path, schema, notes, message = "") {
 		SchemaForm.showErrors(form, []);
 
 		try {
-			const value = SchemaForm.read(schema, form, "");
+			const value = editor.read(form);
 			const { status: code, body: answer } = await request(path, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ Value: value, Version: version, ClearSecrets: SchemaForm.clears(form) })
+				body: JSON.stringify({ Value: value, Version: version, ClearSecrets: editor.clears?.(form) ?? [] })
 			});
 
 			if (code === 401) {
@@ -175,13 +177,13 @@ async function loadForm(container, path, schema, notes, message = "") {
 				show(code >= 200 && code < 300 && answer?.Success ? notes.after : `Not saved: ${answer?.Message || `ASF answered ${code}.`}`);
 			} else if (code === 409) {
 				// The file changed elsewhere: show what it holds now, so the next save starts from it
-				await loadForm(container, path, schema, notes, `${answer?.Message ?? "The file changed."} The form now shows its current content; your edits were not saved.`);
+				await loadForm(container, path, editor, notes, `${answer?.Message ?? "The file changed."} The form now shows its current content; your edits were not saved.`);
 
 				return;
 			} else if (code >= 200 && code < 300 && answer?.Success) {
 				// A bot save leaves ASF up, so reload to show secrets as set or not set; an ASF.json save restarts ASF
 				if (notes.reload) {
-					await loadForm(container, path, schema, notes, notes.after);
+					await loadForm(container, path, editor, notes, notes.after);
 
 					return;
 				}
@@ -198,7 +200,7 @@ async function loadForm(container, path, schema, notes, message = "") {
 				announce(result, answer?.Message || `ASF answered ${code}.`);
 			}
 		} catch (error) {
-			announce(result, `Cannot reach ASF: ${error.message}`);
+			announce(result, error.invalid ? error.message : `Cannot reach ASF: ${error.message}`);
 		} finally {
 			busy = false;
 
@@ -207,6 +209,62 @@ async function loadForm(container, path, schema, notes, message = "") {
 			}
 		}
 	});
+}
+
+function schemaEditor(schema) {
+	return {
+		build: stored => SchemaForm.fields(schema, stored.Value ?? {}, "", new Set(stored.SetSecrets ?? [])),
+		read: form => SchemaForm.read(schema, form, ""),
+		clears: SchemaForm.clears
+	};
+}
+
+let rawFields = 0;
+
+// The value as JSON text; the host refuses ASF's own keys and plugins with a schema, so nothing here is masked
+function rawEditor() {
+	const id = `raw-value-${++rawFields}`;
+
+	return {
+		build: stored => {
+			const label = document.createElement("label");
+			label.htmlFor = id;
+			label.textContent = "Value (JSON)";
+			const text = document.createElement("textarea");
+			text.id = id;
+			text.rows = 10;
+			text.spellcheck = false;
+			text.className = "raw";
+			text.setAttribute("aria-describedby", `${id}-hint`);
+			text.value = stored.Value === null || stored.Value === undefined ? "" : JSON.stringify(stored.Value, null, 2);
+			const hint = document.createElement("p");
+			hint.className = "hint";
+			hint.id = `${id}-hint`;
+			hint.textContent = stored.Value === null || stored.Value === undefined ? "The file has no such key yet; saving adds it." : "Saving null removes the key.";
+			const field = document.createElement("div");
+			field.className = "field";
+			field.append(label, text, hint);
+
+			return [field];
+		},
+		read: form => {
+			const text = form.querySelector(`#${id}`);
+
+			try {
+				const value = JSON.parse(text.value);
+				text.removeAttribute("aria-invalid");
+
+				return value;
+			} catch (error) {
+				text.setAttribute("aria-invalid", "true");
+				text.focus();
+				const invalid = new Error(text.value.trim() === "" ? "Type a JSON value, or null to remove the key." : `Not valid JSON: ${error.message}`);
+				invalid.invalid = true;
+
+				throw invalid;
+			}
+		}
+	};
 }
 
 // A collapsible section whose content is built the first time it opens
@@ -238,13 +296,21 @@ function pluginPath(plugin) {
 	return `PluginConfig/Plugins/${encodeURIComponent(plugin.ConfigKey)}`;
 }
 
-function globalEditor(plugin) {
-	// ASF restarts after any ASF.json change, or stops when AutoRestart is off
-	const notes = host.AutoRestart
+// ASF restarts after any ASF.json change, or stops when AutoRestart is off
+function globalNotes() {
+	return host.AutoRestart
 		? { before: "Saving writes ASF.json, and ASF restarts to apply it.", after: "Saved to ASF.json. ASF is restarting to apply it." }
 		: { before: "Saving writes ASF.json, and ASF stops (AutoRestart is off), so start it again to apply the change.", after: "Saved to ASF.json. ASF is stopping; start it again to apply the change." };
+}
 
-	return section("Global settings", plugin, body => loadForm(body, `${pluginPath(plugin)}/Global`, plugin.Global, notes));
+function botNotes(bot) {
+	return { before: `Saving writes config/${bot}.json, and ASF restarts that bot to apply it.`, after: `Saved to config/${bot}.json. ASF is restarting ${bot} to apply it.`, reload: true };
+}
+
+function globalEditor(plugin) {
+	const notes = globalNotes();
+
+	return section("Global settings", plugin, body => loadForm(body, `${pluginPath(plugin)}/Global`, schemaEditor(plugin.Global), notes));
 }
 
 function botEditor(plugin) {
@@ -278,9 +344,7 @@ function botEditor(plugin) {
 
 		const picked = () => {
 			const bot = picker.value;
-			const notes = { before: `Saving writes config/${bot}.json, and ASF restarts that bot to apply it.`, after: `Saved to config/${bot}.json. ASF is restarting ${bot} to apply it.`, reload: true };
-
-			return loadForm(formHost, `${pluginPath(plugin)}/Bots/${encodeURIComponent(bot)}`, plugin.Bot, notes);
+			return loadForm(formHost, `${pluginPath(plugin)}/Bots/${encodeURIComponent(bot)}`, schemaEditor(plugin.Bot), botNotes(bot));
 		};
 
 		picker.addEventListener("change", () => picked().catch(reportError));
@@ -292,14 +356,88 @@ function botEditor(plugin) {
 	});
 }
 
+// For plugins without a schema: one top-level key of ASF.json or a bot's file, edited as JSON
+function rawCard() {
+	const card = document.createElement("article");
+	const title = document.createElement("h2");
+	title.textContent = "Other plugins (raw JSON)";
+	const description = document.createElement("p");
+	description.textContent = "For a plugin without a config schema: edit its key in ASF.json or in a bot's config file as JSON. ASF's own settings and the plugins above are edited elsewhere.";
+	card.append(title, description, section("Edit a key", { Title: "other plugins" }, async body => {
+		const bots = await api("PluginConfig/Bots");
+
+		if (!bots) {
+			body.textContent = "Cannot load the bots.";
+
+			return;
+		}
+
+		const scope = document.createElement("select");
+		scope.id = "raw-scope";
+		scope.append(new Option("ASF.json (global)", ""), ...bots.map(bot => new Option(`config/${bot}.json`, bot)));
+		const scopeLabel = document.createElement("label");
+		scopeLabel.htmlFor = scope.id;
+		scopeLabel.textContent = "File";
+		const key = document.createElement("input");
+		key.id = "raw-key";
+		key.autocomplete = "off";
+		key.setAttribute("list", "raw-keys");
+		const keyLabel = document.createElement("label");
+		keyLabel.htmlFor = key.id;
+		keyLabel.textContent = "Config key";
+		const keyHint = document.createElement("p");
+		keyHint.className = "hint";
+		keyHint.id = "raw-key-hint";
+		keyHint.textContent = "Pick a key the file already has, or type a new one.";
+		key.setAttribute("aria-describedby", keyHint.id);
+		const keys = document.createElement("datalist");
+		keys.id = "raw-keys";
+		const open = document.createElement("button");
+		open.type = "button";
+		open.textContent = "Open";
+		const editorHost = document.createElement("div");
+		const base = () => scope.value ? `PluginConfig/Raw/Bots/${encodeURIComponent(scope.value)}` : "PluginConfig/Raw/Global";
+
+		const listKeys = async () => {
+			const names = await api(base());
+			keys.replaceChildren(...(names ?? []).map(name => new Option(name)));
+		};
+
+		scope.addEventListener("change", () => {
+			editorHost.replaceChildren();
+			listKeys().catch(reportError);
+		});
+
+		open.addEventListener("click", () => {
+			const name = key.value.trim();
+
+			if (!name) {
+				key.focus();
+
+				return;
+			}
+
+			loadForm(editorHost, `${base()}/${encodeURIComponent(name)}`, rawEditor(), scope.value ? botNotes(scope.value) : globalNotes()).catch(reportError);
+		});
+
+		const scopeField = document.createElement("div");
+		scopeField.className = "field";
+		scopeField.append(scopeLabel, scope);
+		const keyField = document.createElement("div");
+		keyField.className = "field";
+		keyField.append(keyLabel, key, keyHint, keys);
+		body.replaceChildren(scopeField, keyField, open, editorHost);
+		await listKeys();
+	}));
+
+	const item = document.createElement("li");
+	item.append(card);
+
+	return item;
+}
+
 function renderPlugins(plugins) {
 	pluginList.replaceChildren();
-
-	if (plugins.length === 0) {
-		const empty = document.createElement("li");
-		empty.textContent = "No installed plugin ships a config schema.";
-		pluginList.append(empty);
-	}
 
 	for (const plugin of plugins) {
 		const card = document.createElement("article");
@@ -332,6 +470,7 @@ function renderPlugins(plugins) {
 		pluginList.append(item);
 	}
 
+	pluginList.append(rawCard());
 	pluginList.hidden = false;
 }
 

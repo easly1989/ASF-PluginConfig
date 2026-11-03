@@ -125,6 +125,29 @@ internal sealed class ConfigFileTests {
 	}
 
 	[TestMethod]
+	internal void WithoutASchemaTheValueReplacesTheStoredOne() {
+		File.WriteAllText(Path, """{ "IPC": true, "Raw": { "Legacy": 1 } }""");
+
+		ConfigFile.Write(Path, "Raw", null, Value("""[1, "two"]"""), ConfigFile.Read(Path, "Raw").Version!);
+
+		JsonElement raw = ConfigFile.Read(Path, "Raw").Value!.Value;
+		Assert.AreEqual(JsonValueKind.Array, raw.ValueKind, "nothing of the stored object is merged in");
+		Assert.AreEqual("two", raw[1].GetString());
+		Assert.AreEqual("true", ConfigFile.Read(Path, "IPC").Value?.GetRawText());
+	}
+
+	[TestMethod]
+	internal void KeysListsTheTopLevelNames() {
+		Assert.IsNull(ConfigFile.Keys(Path), "a missing file has no keys");
+
+		File.WriteAllText(Path, """{ "IPC": true, "Raw": { "Inner": 1 } }""");
+		Assert.AreEqual("IPC,Raw", string.Join(",", ConfigFile.Keys(Path)!));
+
+		File.WriteAllText(Path, "[1]");
+		Assert.IsNull(ConfigFile.Keys(Path), "a file that is not a JSON object has no keys");
+	}
+
+	[TestMethod]
 	internal void CommentsTrailingCommasAndAByteOrderMarkAreAcceptedAndNoTempFileRemains() {
 		File.WriteAllText(Path, "{\n\t// ASF tolerates comments\n\t\"IPC\": true,\n}", Encoding.UTF8);
 

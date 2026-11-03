@@ -70,6 +70,27 @@ internal sealed class SecretsTests {
 	}
 
 	[TestMethod]
+	internal void AStoredNullIsNotASecret() {
+		JsonElement stored = SchemaValidatorTests.Parse("""{ "Url": "https://e.org", "Token": null }""");
+
+		(_, List<string> set) = Secrets.Mask(Schema, stored);
+		JsonElement merged = Secrets.Merge(Schema, stored, SchemaValidatorTests.Parse("""{ "Url": "https://new.example" }"""), []);
+
+		Assert.IsEmpty(set);
+		Assert.IsNull(JsonUtil.Property(merged, "Token"), "a kept null would fail validation as a non-string");
+	}
+
+	[TestMethod]
+	internal void AnOmittedGroupKeepsItsSecrets() {
+		JsonElement merged = Secrets.Merge(Schema, Stored, SchemaValidatorTests.Parse("""{ "Url": "https://new.example" }"""), []);
+		JsonElement? matrix = JsonUtil.Property(merged, "Matrix");
+
+		Assert.IsNotNull(matrix);
+		Assert.AreEqual(Token + "-2", JsonUtil.String(matrix.Value, "Password"));
+		Assert.IsNull(JsonUtil.Property(matrix.Value, "Room"), "only the secret is carried over");
+	}
+
+	[TestMethod]
 	internal void UnknownStoredKeysAreLeftToTheWriter() {
 		JsonElement merged = Secrets.Merge(Schema, Stored, SchemaValidatorTests.Parse("""{ }"""), []);
 

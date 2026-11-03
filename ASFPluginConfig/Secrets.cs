@@ -26,7 +26,22 @@ internal static class Secrets {
 		return Rebuild(writer => WriteMerged(writer, schema, stored, submitted, "", clear));
 	}
 
+	private static readonly JsonElement EmptyObject = Rebuild(static writer => {
+		writer.WriteStartObject();
+		writer.WriteEndObject();
+	});
+
 	private static bool IsSecret(JsonElement schema) => JsonUtil.Property(schema, "writeOnly")?.ValueKind == JsonValueKind.True;
+
+	private static bool HasStoredSecret(JsonElement schema, JsonElement stored) {
+		List<string> set = [];
+
+		using (Utf8JsonWriter writer = new(Stream.Null)) {
+			WriteMasked(writer, schema, stored, "", set);
+		}
+
+		return set.Count > 0;
+	}
 
 	private static string Join(string prefix, string name) => prefix.Length > 0 ? $"{prefix}.{name}" : name;
 
@@ -57,7 +72,10 @@ internal static class Secrets {
 			JsonElement? child = JsonUtil.Property(properties.Value, property.Name);
 
 			if (child is { } childSchema && IsSecret(childSchema)) {
-				set.Add(Join(path, property.Name));
+				// A stored null means unset, as everywhere else in ASF's configs
+				if (property.Value.ValueKind != JsonValueKind.Null) {
+					set.Add(Join(path, property.Name));
+				}
 
 				continue;
 			}
@@ -92,11 +110,21 @@ internal static class Secrets {
 
 		if (stored is { ValueKind: JsonValueKind.Object } previous) {
 			foreach (JsonProperty property in previous.EnumerateObject()) {
-				bool keep = JsonUtil.Property(properties.Value, property.Name) is { } child && IsSecret(child) && (JsonUtil.Property(submitted, property.Name) == null) && !clear.Contains(Join(path, property.Name));
+				if ((JsonUtil.Property(properties.Value, property.Name) is not { } child) || (JsonUtil.Property(submitted, property.Name) != null)) {
+					continue;
+				}
 
-				if (keep) {
+				string childPath = Join(path, property.Name);
+
+				if (IsSecret(child)) {
+					if ((property.Value.ValueKind != JsonValueKind.Null) && !clear.Contains(childPath)) {
+						writer.WritePropertyName(property.Name);
+						property.Value.WriteTo(writer);
+					}
+				} else if ((property.Value.ValueKind == JsonValueKind.Object) && HasStoredSecret(child, property.Value)) {
+					// An omitted group still keeps its secrets; the writer drops its other fields as for any omitted field
 					writer.WritePropertyName(property.Name);
-					property.Value.WriteTo(writer);
+					WriteMerged(writer, child, property.Value, EmptyObject, childPath, clear);
 				}
 			}
 		}

@@ -72,6 +72,7 @@ internal sealed class PluginSchemaTests {
 		("""{ "configKey": "Demo", "global": { "type": "object", "properties": { "A": { "type": "string", "minimum": 1 } } } }""", "minimum"),
 		("""{ "configKey": "Demo", "global": { "type": "object", "properties": { "A": { "type": "string", "format": "email" } } } }""", "format"),
 		("""{ "configKey": "Demo", "global": { "type": "object", "properties": { "A": { "type": "boolean", "writeOnly": true } } } }""", "writeOnly"),
+		("""{ "configKey": "Demo", "global": { "type": "object", "properties": { "A": { "type": "array", "items": { "type": "string", "writeOnly": true } } } } }""", "not supported on array items"),
 		("""{ "configKey": "Demo", "global": { "type": "object", "properties": { "A": { "type": "array", "items": { "type": "object" } } } } }""", "items"),
 		("""{ "configKey": "Demo", "global": { "type": "object", "properties": { "A": { "type": "string", "enum": [] } } } }""", "enum"),
 		("""{ "configKey": "Demo", "global": { "type": "object", "properties": { "A": { "type": "string" }, "A": { "type": "integer" } } } }""", "duplicate property name"),

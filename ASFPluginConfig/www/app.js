@@ -101,7 +101,7 @@ async function loadForm(container, path, schema, notes, message = "") {
 		return;
 	}
 
-	let version = stored.Version;
+	const version = stored.Version;
 	const form = document.createElement("form");
 	form.noValidate = true;
 	form.append(...SchemaForm.fields(schema, stored.Value ?? {}, "", new Set(stored.SetSecrets ?? [])));
@@ -117,6 +117,7 @@ async function loadForm(container, path, schema, notes, message = "") {
 	form.append(note, save, result);
 	container.replaceChildren(form);
 	let busy = false;
+	let locked = false;
 
 	if (message) {
 		announce(result, message);
@@ -124,6 +125,12 @@ async function loadForm(container, path, schema, notes, message = "") {
 
 	form.addEventListener("submit", async event => {
 		event.preventDefault();
+
+		if (locked) {
+			announce(result, `${notes.after} Reload the page once ASF is back to edit again.`);
+
+			return;
+		}
 
 		if (busy || !window.confirm(`${notes.before} Save now?`)) {
 			return;
@@ -164,7 +171,8 @@ async function loadForm(container, path, schema, notes, message = "") {
 					return;
 				}
 
-				version = answer.Result;
+				// ASF is going away, so the form cannot reload: lock it rather than leave stale secret states to resend
+				locked = true;
 
 				for (const input of form.querySelectorAll("input[type=password]")) {
 					input.value = "";
@@ -178,7 +186,10 @@ async function loadForm(container, path, schema, notes, message = "") {
 			announce(result, `Cannot reach ASF: ${error.message}`);
 		} finally {
 			busy = false;
-			save.removeAttribute("aria-disabled");
+
+			if (!locked) {
+				save.removeAttribute("aria-disabled");
+			}
 		}
 	});
 }

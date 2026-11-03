@@ -205,6 +205,11 @@ public sealed class PluginSchema {
 				return $"{path}: items must be a schema of type string, integer, number or boolean";
 			}
 
+			// Masking and keep-on-omit work per property, so a secret must be a whole string property
+			if (items.ContainsKey("writeOnly")) {
+				return $"{path}.items: writeOnly is not supported on array items";
+			}
+
 			error = Check(items, $"{path}.items");
 
 			if (error != null) {

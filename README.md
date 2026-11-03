@@ -5,7 +5,7 @@ configuration of other installed plugins. Each plugin that wants a form embeds a
 builds the form from it and writes the plugin's own key in `ASF.json` or `config/<bot>.json`.
 
 > Work in progress. The design is in [issue #1](https://github.com/easly1989/ASF-PluginConfig/issues/1); this
-> version lists the plugins that ship a schema, but has no forms yet.
+> version edits global settings. Per-bot settings, secrets and a raw editor follow.
 
 ## Install
 
@@ -17,6 +17,15 @@ builds the form from it and writes the plugin's own key in `ASF.json` or `config
    after ASF accepts it.
 
 Requires ASF 6.3.10.6 or later, with IPC enabled.
+
+## Use
+
+Each plugin that ships a schema gets a card. Open **Global settings**, change the form and save:
+- **Validation first.** The host checks the value against the plugin's schema. Nothing is written until every field passes; errors appear next to their fields.
+- **Only that plugin's key changes.** The host rewrites the plugin's key in `ASF.json` and keeps every other key. Keys inside the plugin's value that the schema does not know are kept too. Comments in `ASF.json` are not kept.
+- **No silent overwrite.** If `ASF.json` changed after you opened the form, for example from ASF-ui, the save is refused. Reopen the form and save again.
+- **ASF restarts to apply it.** ASF restarts after any change to `ASF.json`, or exits if `AutoRestart` is off.
+- **Saving needs `IPCPassword`.** Saving is refused while `IPCPassword` is empty in `ASF.json`.
 
 ## For plugin authors: the schema contract
 

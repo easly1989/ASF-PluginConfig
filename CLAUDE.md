@@ -33,7 +33,9 @@ Requires the .NET 10 SDK. Clone with submodules.
 - ASF's OS-specific builds are trimmed: use only what the trim check accepts. Plugin controllers and a plugin-defined
   response type serialized by ASF's MVC were verified on trimmed 6.3.10.6 (ticket #2). `System.Text.Json` is trimmed
   unevenly: `JsonNode.ToJsonString`, `JsonElement.TryGetProperty(string)` and `JsonProperty.NameEquals` are gone, while
-  `JsonNode.Parse`, its indexers and `JsonDocument.EnumerateObject` stay. Run TrimCheck after any JSON change.
+  `JsonNode.Parse`, its indexers and `JsonDocument.EnumerateObject` stay; `JsonProperty.WriteTo` is gone, so write
+  `WritePropertyName` plus `JsonElement.WriteTo`. MVC too: no `[HttpPut]`, `NotFound(object)` or `Conflict(object)`; use
+  `[HttpPost]` and `StatusCode(code, body)`. Run TrimCheck after any change that touches a framework API.
 - Every endpoint lives under `/Api/PluginConfig/`, where ASF's `IPCPassword` middleware applies. The static page
   holds no data.
 - Never log, return or commit a secret. Values of `writeOnly` schema fields never leave the host. Fixtures use

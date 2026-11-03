@@ -17,12 +17,16 @@ function storage(action) {
 	}
 }
 
-function show(message) {
-	// Clearing first makes the live region announce a message equal to the previous one
-	status.textContent = "";
+function announce(region, message) {
+	// Clearing first makes a live region announce a message equal to the previous one
+	region.textContent = "";
 	requestAnimationFrame(() => {
-		status.textContent = message;
+		region.textContent = message;
 	});
+}
+
+function show(message) {
+	announce(status, message);
 }
 
 function askForPassword(message) {
@@ -32,23 +36,30 @@ function askForPassword(message) {
 	passwordInput.focus();
 }
 
-async function api(path) {
-	const headers = {};
+async function request(path, init = {}) {
+	const headers = { ...init.headers };
 
 	if (password) {
 		headers.Authentication = password;
 	}
 
-	const response = await fetch(`../Api/${path}`, { headers });
+	const response = await fetch(`../Api/${path}`, { ...init, headers });
 
-	if (response.status === 401) {
+	return { status: response.status, body: await response.json().catch(() => null) };
+}
+
+// For reads: a 401 or 403 means the password is wrong or ASF refuses this address, and the page shows why
+async function api(path) {
+	const { status: code, body } = await request(path);
+
+	if (code === 401) {
 		storage(s => s.removeItem(passwordKey));
 		askForPassword(password ? "Wrong IPC password." : "Enter ASF's IPC password.");
 
 		return null;
 	}
 
-	if (response.status === 403) {
+	if (code === 403) {
 		storage(s => s.removeItem(passwordKey));
 		login.hidden = true;
 		pluginList.hidden = true;
@@ -57,15 +68,97 @@ async function api(path) {
 		return null;
 	}
 
-	const body = await response.json().catch(() => null);
-
-	if (!response.ok || !body?.Success) {
-		show(body?.Message || `ASF answered ${response.status}.`);
+	if (code < 200 || code > 299 || !body?.Success) {
+		show(body?.Message || `ASF answered ${code}.`);
 
 		return null;
 	}
 
 	return body.Result;
+}
+
+function settingsEditor(plugin, scope, schema, restartNote, savedNote) {
+	const details = document.createElement("details");
+	const summary = document.createElement("summary");
+	summary.textContent = scope === "Global" ? "Global settings" : "Bot settings";
+	details.append(summary);
+	const body = document.createElement("div");
+	body.className = "editor";
+	details.append(body);
+	const path = `PluginConfig/Plugins/${encodeURIComponent(plugin.ConfigKey)}/${scope}`;
+
+	details.addEventListener("toggle", async () => {
+		if (!details.open || body.childElementCount > 0) {
+			return;
+		}
+
+		const loading = document.createElement("p");
+		loading.textContent = "Loading…";
+		body.append(loading);
+		const stored = await api(path).catch(error => {
+			loading.textContent = `Cannot reach ASF: ${error.message}`;
+		});
+
+		if (!stored) {
+			loading.textContent ||= "Cannot load the settings.";
+
+			return;
+		}
+
+		let version = stored.Version;
+		const form = document.createElement("form");
+		form.noValidate = true;
+		form.append(...SchemaForm.fields(schema, stored.Value ?? {}, ""));
+		const note = document.createElement("p");
+		note.className = "hint";
+		note.textContent = restartNote;
+		const save = document.createElement("button");
+		save.type = "submit";
+		save.textContent = "Save";
+		const result = document.createElement("p");
+		result.setAttribute("role", "status");
+		result.className = "result";
+		form.append(note, save, result);
+		body.replaceChildren(form);
+
+		form.addEventListener("submit", async event => {
+			event.preventDefault();
+
+			if (!window.confirm(`${restartNote} Save now?`)) {
+				return;
+			}
+
+			save.disabled = true;
+			SchemaForm.showErrors(form, []);
+
+			try {
+				const value = SchemaForm.read(schema, form, "");
+				const { status: code, body: answer } = await request(path, {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ Value: value, Version: version })
+				});
+
+				if (code === 401) {
+					askForPassword("Wrong IPC password.");
+				} else if (code === 400 && Array.isArray(answer?.Result)) {
+					const unplaced = SchemaForm.showErrors(form, answer.Result);
+					announce(result, [answer.Message, ...unplaced].join(" "));
+				} else if (code >= 200 && code < 300 && answer?.Success) {
+					version = answer.Result;
+					announce(result, savedNote);
+				} else {
+					announce(result, answer?.Message || `ASF answered ${code}.`);
+				}
+			} catch (error) {
+				announce(result, `Cannot reach ASF: ${error.message}`);
+			} finally {
+				save.disabled = false;
+			}
+		});
+	});
+
+	return details;
 }
 
 function renderPlugins(plugins) {
@@ -94,6 +187,11 @@ function renderPlugins(plugins) {
 		const scopes = [plugin.Global && "global", plugin.Bot && "per bot"].filter(Boolean).join(" and ");
 		meta.textContent = `${plugin.Assembly} · key ${plugin.ConfigKey} · ${scopes} settings`;
 		card.append(meta);
+
+		if (plugin.Global) {
+			card.append(settingsEditor(plugin, "Global", plugin.Global, "Saving writes ASF.json, and ASF restarts to apply it.", "Saved to ASF.json. ASF is restarting to apply it."));
+		}
+
 		const item = document.createElement("li");
 		item.append(card);
 		pluginList.append(item);

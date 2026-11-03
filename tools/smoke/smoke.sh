@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
 # Smoke test against an official OS-specific ASF release, which is trimmed: installs the plugin and the demo plugin,
-# starts ASF with IPC on localhost and an IPCPassword, and checks that the page is served, that the plugin's controller
-# answers under /Api (401 without the password, 200 with it, plugin-defined response types serialized), that the demo
-# plugin's embedded schema is discovered, and that ASF logged no error.
+# starts ASF with IPC on localhost, and checks
+# - with an IPCPassword: the page and its assets are served; the controller answers 401 without the password and 200
+#   with it; the demo plugin's embedded schema is discovered; a global save is validated (400), version-checked (409),
+#   written into ASF.json without touching other keys, and makes ASF exit to apply it (AutoRestart is off);
+# - without an IPCPassword: a save is refused with 403;
+# - ASF logged no error or exception in either run.
 #
 # Usage: tools/smoke/smoke.sh <unzipped-asf-release-dir> <published-plugin-dir> <published-demo-plugin-dir>
-# Env: IPC_PORT (default 12422)
+# Env: IPC_PORT (default 12422), PYTHON (default python3)
 set -euo pipefail
 
 if [ "$#" -ne 3 ]; then
@@ -18,6 +21,7 @@ plugin_src=$2
 demo_src=$3
 ipc_port=${IPC_PORT:-12422}
 ipc="http://127.0.0.1:${ipc_port}"
+python=${PYTHON:-python3}
 password=smoke-FAKE-ipc-password
 work=$(mktemp -d)
 asf_pid=
@@ -30,7 +34,7 @@ native() {
 fail() {
 	echo "SMOKE FAIL: $*" >&2
 	echo "----- ASF output -----" >&2
-	cat "$work/asf.out" >&2 2>/dev/null || true
+	cat "$work"/asf*.out >&2 2>/dev/null || true
 	exit 1
 }
 
@@ -39,6 +43,48 @@ cleanup() {
 	rm -rf "$work"
 }
 trap cleanup EXIT
+
+# The Authentication header, or a harmless one when the run has no IPC password
+auth() {
+	if [ -n "$1" ]; then printf 'Authentication: %s' "$1"; else printf 'X-No-Auth: 1'; fi
+}
+
+# start_asf <log-name> <ipc-password-or-empty>
+start_asf() {
+	"$exe" --no-restart --path "$(native "$work")" > "$work/$1" 2>&1 &
+	asf_pid=$!
+	echo "Waiting for ASF's IPC on ${ipc}"
+
+	for _ in $(seq 1 120); do
+		kill -0 "$asf_pid" 2>/dev/null || fail "ASF exited during start-up"
+		curl -fsS --max-time 20 -H "$(auth "$2")" "${ipc}/Api/PluginConfig" > /dev/null 2>&1 && return 0
+		sleep 1
+	done
+
+	fail "IPC did not come up within 120 s"
+}
+
+# wait_exit <seconds>: ASF must exit by itself, with code 0
+wait_exit() {
+	for _ in $(seq 1 "$1"); do
+		kill -0 "$asf_pid" 2>/dev/null || break
+		sleep 1
+	done
+
+	if kill -0 "$asf_pid" 2>/dev/null; then
+		fail "ASF did not exit within $1 s"
+	fi
+
+	code=0
+	wait "$asf_pid" || code=$?
+	asf_pid=
+	[ "$code" -eq 0 ] || fail "ASF exited with code $code"
+}
+
+# save_global <ipc-password-or-empty> <json-body> prints the HTTP status; the answer goes to $work/save.json
+save_global() {
+	curl -sS --max-time 20 -o "$work/save.json" -w '%{http_code}' -X POST -H "$(auth "$1")" -H 'Content-Type: application/json' -d "$2" "${ipc}/Api/PluginConfig/Plugins/DemoNotifier/Global"
+}
 
 cp -R "$asf_src"/. "$work"/
 exe="$work/ArchiSteamFarm"
@@ -57,7 +103,8 @@ cat > "$work/config/ASF.json" <<EOF
 	"IPC": true,
 	"IPCPassword": "${password}",
 	"UpdateChannel": 0,
-	"UpdatePeriod": 0
+	"UpdatePeriod": 0,
+	"DemoNotifier": { "ServerUrl": "https://old.example.org", "Legacy": "kept" }
 }
 EOF
 
@@ -73,21 +120,10 @@ cat > "$work/config/IPC.config" <<EOF
 }
 EOF
 
-"$exe" --no-restart --path "$(native "$work")" > "$work/asf.out" 2>&1 &
-asf_pid=$!
+start_asf asf1.out "$password"
 
-echo "Waiting for ASF's IPC on ${ipc}"
-
-for _ in $(seq 1 120); do
-	kill -0 "$asf_pid" 2>/dev/null || fail "ASF exited during start-up"
-	curl -fsS --max-time 20 -H "Authentication: ${password}" "${ipc}/Api/ASF" > /dev/null 2>&1 && break
-	sleep 1
-done
-
-curl -fsS --max-time 20 -H "Authentication: ${password}" "${ipc}/Api/ASF" > /dev/null || fail "IPC did not come up within 120 s"
-
-grep -Eq 'ASFPluginConfig [0-9.]+ loaded' "$work/asf.out" || fail "the plugin did not log that it loaded"
-echo "OK: $(grep -Eo 'ASFPluginConfig [0-9.]+ loaded' "$work/asf.out" | head -n 1)"
+grep -Eq 'ASFPluginConfig [0-9.]+ loaded' "$work/asf1.out" || fail "the plugin did not log that it loaded"
+echo "OK: $(grep -Eo 'ASFPluginConfig [0-9.]+ loaded' "$work/asf1.out" | head -n 1)"
 
 page=$(curl -fsS --max-time 20 "${ipc}/plugin-config/") || fail "the page is not served"
 case "$page" in
@@ -95,24 +131,24 @@ case "$page" in
 	*) fail "/plugin-config/ did not return the plugin's page" ;;
 esac
 
-# The page is blank without its script and style, so a zip missing them must fail here
+# The page is blank without its scripts and style, so a zip missing them must fail here
 curl -fsS --max-time 20 "${ipc}/plugin-config/app.js" | grep -q 'asf-plugin-config.ipc-password' || fail "app.js is not served"
+curl -fsS --max-time 20 "${ipc}/plugin-config/form.js" | grep -q 'SchemaForm' || fail "form.js is not served"
 curl -fsS --max-time 20 "${ipc}/plugin-config/app.css" | grep -q -- '--accent' || fail "app.css is not served"
-echo "OK: app.js and app.css served"
+echo "OK: app.js, form.js and app.css served"
 
 status=$(curl -sS --max-time 20 -o /dev/null -w '%{http_code}' "${ipc}/Api/PluginConfig") || fail "the controller does not answer"
 [ "$status" = 401 ] || fail "without the password the controller answered $status, expected 401"
 echo "OK: 401 without the password"
 
 reply=$(curl -fsS --max-time 20 -H "Authentication: ${password}" "${ipc}/Api/PluginConfig") || fail "the controller failed with the password"
-echo "PluginConfig: $reply"
 case "$reply" in
 	*'"Success":true'*) ;;
-	*) fail "the controller did not report success" ;;
+	*) fail "the controller did not report success: $reply" ;;
 esac
 case "$reply" in
 	*'"Name":"ASFPluginConfig"'*) echo "OK: controller answered with the plugin's response type" ;;
-	*) fail "the reply lacks the plugin's response type" ;;
+	*) fail "the reply lacks the plugin's response type: $reply" ;;
 esac
 
 plugins=$(curl -fsS --max-time 20 -H "Authentication: ${password}" "${ipc}/Api/PluginConfig/Plugins") || fail "the plugin list failed"
@@ -120,26 +156,62 @@ case "$plugins" in
 	*'"ConfigKey":"DemoNotifier"'*'"writeOnly":true'*) echo "OK: the demo plugin's schema is discovered and served" ;;
 	*) fail "the plugin list lacks the demo plugin's schema: $plugins" ;;
 esac
-grep -Eq '1 config schema\(s\) found' "$work/asf.out" || fail "the plugin did not log one discovered schema"
+grep -Eq '1 config schema\(s\) found' "$work/asf1.out" || fail "the plugin did not log one discovered schema"
 
-curl -fsS --max-time 20 -X POST -H "Authentication: ${password}" "${ipc}/Api/ASF/Exit" > /dev/null || fail "IPC exit failed"
+stored=$(curl -fsS --max-time 20 -H "Authentication: ${password}" "${ipc}/Api/PluginConfig/Plugins/DemoNotifier/Global") || fail "reading the global value failed"
+version=$(printf '%s' "$stored" | sed -n 's/.*"Version":"\([0-9A-F]*\)".*/\1/p')
+[ -n "$version" ] || fail "no version in $stored"
+case "$stored" in
+	*'"ServerUrl":"https://old.example.org"'*) echo "OK: global value read" ;;
+	*) fail "unexpected global value: $stored" ;;
+esac
 
-for _ in $(seq 1 30); do
-	kill -0 "$asf_pid" 2>/dev/null || break
-	sleep 1
-done
+code=$(save_global "$password" "{\"Value\":{\"ServerUrl\":\"https://new.example.org\",\"DelayMinutes\":0},\"Version\":\"${version}\"}")
+[ "$code" = 400 ] || fail "an out-of-range value answered $code, expected 400: $(cat "$work/save.json")"
+grep -q '"Path":"DelayMinutes"' "$work/save.json" || fail "the 400 does not name the field: $(cat "$work/save.json")"
+echo "OK: 400 names the invalid field"
 
-if kill -0 "$asf_pid" 2>/dev/null; then
-	fail "ASF did not exit within 30 s"
-fi
+code=$(save_global "$password" '{"Value":{"ServerUrl":"https://new.example.org"},"Version":"0000"}')
+[ "$code" = 409 ] || fail "a stale version answered $code, expected 409: $(cat "$work/save.json")"
+echo "OK: 409 on a stale version"
 
-code=0
-wait "$asf_pid" || code=$?
-asf_pid=
-[ "$code" -eq 0 ] || fail "ASF exited with code $code"
+code=$(save_global "$password" "{\"Value\":{\"ServerUrl\":\"https://new.example.org\",\"DelayMinutes\":10,\"Events\":{\"BotStopped\":false}},\"Version\":\"${version}\"}")
+[ "$code" = 200 ] || fail "a valid save answered $code: $(cat "$work/save.json")"
+echo "OK: 200 on a valid save"
+
+wait_exit 30
+grep -q 'pluginconfig.tmp' <(ls "$work/config") && fail "a temp file was left in config/"
+echo "OK: ASF exited to apply the change"
+
+"$python" - "$work/config/ASF.json" "$password" <<'EOF' || fail "ASF.json is not what the save should have written"
+import json, sys
+config = json.load(open(sys.argv[1], encoding="utf-8"))
+assert config["IPCPassword"] == sys.argv[2] and config["AutoRestart"] is False and config["UpdatePeriod"] == 0, config
+demo = config["DemoNotifier"]
+assert demo == {"ServerUrl": "https://new.example.org", "DelayMinutes": 10, "Events": {"BotStopped": False}, "Legacy": "kept"}, demo
+print("OK: ASF.json has the new value; ASF's keys and the unknown key are untouched")
+EOF
+
+# Second run without IPCPassword: IPC lets localhost in, the host still refuses to write
+"$python" - "$work/config/ASF.json" <<'EOF'
+import json, sys
+config = json.load(open(sys.argv[1], encoding="utf-8"))
+del config["IPCPassword"]
+json.dump(config, open(sys.argv[1], "w", encoding="utf-8"), indent=2)
+EOF
+
+start_asf asf2.out ""
+version=$(curl -fsS --max-time 20 "${ipc}/Api/PluginConfig/Plugins/DemoNotifier/Global" | sed -n 's/.*"Version":"\([0-9A-F]*\)".*/\1/p')
+code=$(save_global "" "{\"Value\":{\"ServerUrl\":\"https://other.example.org\"},\"Version\":\"${version}\"}")
+[ "$code" = 403 ] || fail "a save without IPCPassword answered $code, expected 403: $(cat "$work/save.json")"
+grep -q 'IPCPassword' "$work/save.json" || fail "the 403 does not explain itself: $(cat "$work/save.json")"
+echo "OK: 403 on a save while IPCPassword is empty"
+
+curl -fsS --max-time 20 -X POST "${ipc}/Api/ASF/Exit" > /dev/null || fail "IPC exit failed"
+wait_exit 30
 
 # ASF's log lines read date|process|LEVEL|logger|message
-if grep -E '\|(ERROR|FATAL)\||Exception' "$work/asf.out"; then
+if grep -E '\|(ERROR|FATAL)\||Exception' "$work"/asf*.out; then
 	fail "ASF logged an error or exception"
 fi
 

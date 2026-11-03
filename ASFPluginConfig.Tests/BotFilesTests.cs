@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace ASFPluginConfig.Tests;
@@ -25,7 +26,8 @@ internal sealed class BotFilesTests {
 	[TestMethod]
 	internal void ListsOnlyBotConfigs() {
 		// On a case-insensitive file system DUPE.json overwrote dupe.json and one bot remains; otherwise both are hidden
-		string expected = File.Exists(Path.Combine(Directory, "dupe.json")) && (System.IO.Directory.GetFiles(Directory, "*upe.json").Length == 1) ? "Alt,dupe,main" : "Alt,main";
+		bool oneDupe = System.IO.Directory.GetFiles(Directory).Count(static file => Path.GetFileName(file).Equals("dupe.json", StringComparison.OrdinalIgnoreCase)) == 1;
+		string expected = oneDupe ? $"Alt,{Path.GetFileNameWithoutExtension(System.IO.Directory.GetFiles(Directory).Single(static file => Path.GetFileName(file).Equals("dupe.json", StringComparison.OrdinalIgnoreCase)))},main" : "Alt,main";
 
 		Assert.AreEqual(expected, string.Join(",", BotFiles.List(Directory)));
 	}

@@ -56,6 +56,17 @@ public sealed class PluginSchema {
 			return null;
 		}
 
+		// JsonNode.Parse accepts duplicate property names and throws on first access instead
+		try {
+			return ParseDocument(assembly, json, root, out error);
+		} catch (ArgumentException e) {
+			error = $"duplicate property name: {e.Message}";
+
+			return null;
+		}
+	}
+
+	private static PluginSchema? ParseDocument(string assembly, string json, JsonNode? root, out string? error) {
 		if (root is not JsonObject document) {
 			error = "the document must be a JSON object";
 
@@ -68,9 +79,21 @@ public sealed class PluginSchema {
 			return null;
 		}
 
-		if (!TryGetString(document, "configKey", out string? configKey) || string.IsNullOrWhiteSpace(configKey)) {
-			error = "configKey must be a non-empty string";
+		if (!TryGetString(document, "configKey", out string? configKey) || string.IsNullOrWhiteSpace(configKey) || (configKey.Trim() != configKey)) {
+			error = "configKey must be a non-empty string without surrounding spaces";
 
+			return null;
+		}
+
+		if (AsfKeys.Owned.Contains(configKey)) {
+			error = $"configKey {configKey} is one of ASF's own settings";
+
+			return null;
+		}
+
+		error = TextKeywords(document, "document");
+
+		if (error != null) {
 			return null;
 		}
 
@@ -131,22 +154,50 @@ public sealed class PluginSchema {
 			}
 		}
 
-		if (schema["format"] is { } format && (format.GetValueKind() != JsonValueKind.String || format.GetValue<string>() != "uri")) {
+		// ContainsKey first: an explicit JSON null reads as a missing child through the indexer
+		if (schema.ContainsKey("format") && ((schema["format"]?.GetValueKind() != JsonValueKind.String) || (schema["format"]!.GetValue<string>() != "uri"))) {
 			return $"{path}: the only supported format is 'uri'";
 		}
 
-		if (schema["writeOnly"] is { } writeOnly && writeOnly.GetValueKind() is not (JsonValueKind.True or JsonValueKind.False)) {
+		if (schema.ContainsKey("writeOnly") && schema["writeOnly"]?.GetValueKind() is not (JsonValueKind.True or JsonValueKind.False)) {
 			return $"{path}: writeOnly must be a boolean";
 		}
 
+		error = TextKeywords(schema, path);
+
+		if (error != null) {
+			return error;
+		}
+
 		foreach (string bound in (string[]) ["minimum", "maximum"]) {
-			if (schema[bound] is { } value && value.GetValueKind() != JsonValueKind.Number) {
+			if (schema.ContainsKey(bound) && (schema[bound]?.GetValueKind() != JsonValueKind.Number)) {
 				return $"{path}: {bound} must be a number";
 			}
 		}
 
-		if (schema.ContainsKey("enum") && schema["enum"] is not JsonArray { Count: > 0 }) {
-			return $"{path}: enum must be a non-empty array";
+		double minimum = schema["minimum"]?.GetValue<double>() ?? double.NegativeInfinity;
+		double maximum = schema["maximum"]?.GetValue<double>() ?? double.PositiveInfinity;
+
+		if (minimum > maximum) {
+			return $"{path}: minimum is greater than maximum";
+		}
+
+		if (schema.ContainsKey("enum")) {
+			if (schema["enum"] is not JsonArray { Count: > 0 } options) {
+				return $"{path}: enum must be a non-empty array";
+			}
+
+			if (options.Any(option => !Fits(option, type, minimum, maximum))) {
+				return $"{path}: every enum value must be {type}";
+			}
+		}
+
+		if (schema.ContainsKey("default") && !Fits(schema["default"], type, minimum, maximum)) {
+			return $"{path}: default must be {type}{(type is "integer" or "number" ? " within minimum and maximum" : "")}";
+		}
+
+		if ((type == "array") && !schema.ContainsKey("items")) {
+			return $"{path}: an array needs items";
 		}
 
 		if (schema.ContainsKey("items")) {
@@ -203,6 +254,38 @@ public sealed class PluginSchema {
 	}
 
 	// JsonElement.TryGetProperty(string) is trimmed out too; EnumerateObject is kept
+	// Whether a default or enum value matches its schema's type; arrays and objects only check the kind
+	private static bool Fits(JsonNode? value, string type, double minimum, double maximum) {
+		JsonValueKind kind = value?.GetValueKind() ?? JsonValueKind.Null;
+
+		switch (type) {
+			case "string":
+				return kind == JsonValueKind.String;
+			case "boolean":
+				return kind is JsonValueKind.True or JsonValueKind.False;
+			case "object":
+				return kind == JsonValueKind.Object;
+			case "array":
+				return kind == JsonValueKind.Array;
+			case "integer" or "number" when kind == JsonValueKind.Number:
+				double number = value!.GetValue<double>();
+
+				return ((type == "number") || (Math.Floor(number) == number)) && (number >= minimum) && (number <= maximum);
+			default:
+				return false;
+		}
+	}
+
+	private static string? TextKeywords(JsonObject node, string path) {
+		foreach (string keyword in (string[]) ["title", "description"]) {
+			if (node.ContainsKey(keyword) && (node[keyword]?.GetValueKind() != JsonValueKind.String)) {
+				return $"{path}: {keyword} must be a string";
+			}
+		}
+
+		return null;
+	}
+
 	private static JsonElement? Element(JsonDocument document, string name) {
 		foreach (JsonProperty property in document.RootElement.EnumerateObject()) {
 			if (property.Name == name) {

@@ -58,7 +58,7 @@ JSON file in your DLL. You need no code change and no shared assembly.
    ```
 
 What the document must contain:
-- `configKey`: required. Your top-level key in `ASF.json` and in `config/<bot>.json`. The first plugin to claim a key keeps it.
+- `configKey`: required. Your top-level key in `ASF.json` and in `config/<bot>.json`. It cannot be one of ASF's own settings. When two plugins claim one key, the assembly whose name sorts first keeps it.
 - `global` and `bot`: at least one, each with `"type": "object"`. `global` is the key in `ASF.json`; `bot` is the key in each bot's config.
 - `title` and `description`: optional. `title` falls back to `configKey`.
 - `$schema`: allowed, and ignored.
@@ -68,10 +68,10 @@ Keywords inside a schema; anything else makes the host ignore your schema and lo
 | Keyword | Applies to |
 |---|---|
 | `type` (required): `object`, `string`, `integer`, `number`, `boolean`, `array` | every schema |
-| `title`, `description`, `default`, `enum` (non-empty) | every schema |
+| `title`, `description` (strings); `default` and `enum` (non-empty), whose values must match `type`, `minimum` and `maximum` | every schema |
 | `properties`, `required` (names among `properties`) | `object` |
-| `items` (a `string`, `integer`, `number` or `boolean` schema) | `array` |
-| `minimum`, `maximum` | `integer`, `number` |
+| `items` (required: a `string`, `integer`, `number` or `boolean` schema) | `array` |
+| `minimum`, `maximum` (`minimum` ≤ `maximum`) | `integer`, `number` |
 | `format`: only `uri` | `string` |
 | `writeOnly`: a secret, never sent back to the page | `string` |
 

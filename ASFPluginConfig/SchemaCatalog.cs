@@ -25,51 +25,59 @@ internal sealed class SchemaCatalog {
 
 		List<PluginSchema> schemas = [];
 
-		foreach (Assembly assembly in assemblies) {
-			if (assembly.IsDynamic || (assembly.GetName().Name is not { Length: > 0 } name)) {
-				continue;
-			}
+		// Sorted, so which of two plugins claiming one key wins does not depend on load order
+		foreach (Assembly assembly in assemblies.Where(static assembly => !assembly.IsDynamic).OrderBy(static assembly => assembly.FullName, StringComparer.Ordinal)) {
+			string name = assembly.FullName ?? "?";
 
-			string resource = name + ResourceSuffix;
-
-			if (!assembly.GetManifestResourceNames().Contains(resource, StringComparer.Ordinal)) {
-				continue;
-			}
-
-			string json;
-
+			// One odd assembly or schema must never take the host down with it
 			try {
-				using Stream? stream = assembly.GetManifestResourceStream(resource);
+				PluginSchema? schema = LoadOne(assembly, out name, logError);
 
-				if (stream == null) {
+				if (schema == null) {
 					continue;
 				}
 
-				using StreamReader reader = new(stream);
-				json = reader.ReadToEnd();
-			} catch (IOException e) {
-				logError($"Config schema of {name} cannot be read: {e.Message}");
+				if (schemas.Any(existing => string.Equals(existing.ConfigKey, schema.ConfigKey, StringComparison.OrdinalIgnoreCase))) {
+					logError($"Config schema of {name} is ignored: another plugin already claims the config key {schema.ConfigKey}");
 
-				continue;
+					continue;
+				}
+
+				schemas.Add(schema);
+			} catch (Exception e) {
+				logError($"Config schema of {name} is ignored: {e.GetType().Name}: {e.Message}");
 			}
-
-			PluginSchema? schema = PluginSchema.Parse(name, json, out string? error);
-
-			if (schema == null) {
-				logError($"Config schema of {name} is invalid and ignored: {error}");
-
-				continue;
-			}
-
-			if (schemas.Any(existing => existing.ConfigKey == schema.ConfigKey)) {
-				logError($"Config schema of {name} is ignored: another plugin already claims the config key {schema.ConfigKey}");
-
-				continue;
-			}
-
-			schemas.Add(schema);
 		}
 
 		return new SchemaCatalog([.. schemas.OrderBy(static schema => schema.Title, StringComparer.OrdinalIgnoreCase)]);
+	}
+
+	private static PluginSchema? LoadOne(Assembly assembly, out string name, Action<string> logError) {
+		name = assembly.GetName().Name ?? "";
+
+		if (name.Length == 0) {
+			return null;
+		}
+
+		string resource = name + ResourceSuffix;
+
+		if (!assembly.GetManifestResourceNames().Contains(resource, StringComparer.Ordinal)) {
+			return null;
+		}
+
+		using Stream? stream = assembly.GetManifestResourceStream(resource);
+
+		if (stream == null) {
+			return null;
+		}
+
+		using StreamReader reader = new(stream);
+		PluginSchema? schema = PluginSchema.Parse(name, reader.ReadToEnd(), out string? error);
+
+		if (schema == null) {
+			logError($"Config schema of {name} is invalid and ignored: {error}");
+		}
+
+		return schema;
 	}
 }

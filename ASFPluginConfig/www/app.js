@@ -72,7 +72,7 @@ function renderPlugins(plugins) {
 	pluginList.replaceChildren();
 
 	if (plugins.length === 0) {
-		const empty = document.createElement("p");
+		const empty = document.createElement("li");
 		empty.textContent = "No installed plugin ships a config schema.";
 		pluginList.append(empty);
 	}
@@ -94,7 +94,9 @@ function renderPlugins(plugins) {
 		const scopes = [plugin.Global && "global", plugin.Bot && "per bot"].filter(Boolean).join(" and ");
 		meta.textContent = `${plugin.Assembly} · key ${plugin.ConfigKey} · ${scopes} settings`;
 		card.append(meta);
-		pluginList.append(card);
+		const item = document.createElement("li");
+		item.append(card);
+		pluginList.append(item);
 	}
 
 	pluginList.hidden = false;
@@ -113,7 +115,12 @@ async function load(typed) {
 		storage(s => s.setItem(passwordKey, password));
 	}
 
-	login.hidden = true;
+	if (!login.hidden) {
+		// The focused password field is about to disappear; keep focus on the page instead of <body>
+		login.hidden = true;
+		document.querySelector("h1").focus();
+	}
+
 	const plugins = await api("PluginConfig/Plugins");
 
 	if (!plugins) {

@@ -73,7 +73,22 @@ internal sealed class PluginSchemaTests {
 		("""{ "configKey": "Demo", "global": { "type": "object", "properties": { "A": { "type": "string", "format": "email" } } } }""", "format"),
 		("""{ "configKey": "Demo", "global": { "type": "object", "properties": { "A": { "type": "boolean", "writeOnly": true } } } }""", "writeOnly"),
 		("""{ "configKey": "Demo", "global": { "type": "object", "properties": { "A": { "type": "array", "items": { "type": "object" } } } } }""", "items"),
-		("""{ "configKey": "Demo", "global": { "type": "object", "properties": { "A": { "type": "string", "enum": [] } } } }""", "enum")
+		("""{ "configKey": "Demo", "global": { "type": "object", "properties": { "A": { "type": "string", "enum": [] } } } }""", "enum"),
+		("""{ "configKey": "Demo", "global": { "type": "object", "properties": { "A": { "type": "string" }, "A": { "type": "integer" } } } }""", "duplicate property name"),
+		("""{ "configKey": "Headless", "global": { "type": "object" } }""", "ASF's own settings"),
+		("""{ "configKey": "steamlogin", "bot": { "type": "object" } }""", "ASF's own settings"),
+		("""{ "configKey": " Demo ", "global": { "type": "object" } }""", "surrounding spaces"),
+		("""{ "configKey": "Demo", "global": { "type": "object", "properties": { "A": { "type": "integer", "default": "abc" } } } }""", "default must be integer"),
+		("""{ "configKey": "Demo", "global": { "type": "object", "properties": { "A": { "type": "integer", "default": 1.5 } } } }""", "default must be integer"),
+		("""{ "configKey": "Demo", "global": { "type": "object", "properties": { "A": { "type": "integer", "minimum": 1, "maximum": 5, "default": 50 } } } }""", "within minimum and maximum"),
+		("""{ "configKey": "Demo", "global": { "type": "object", "properties": { "A": { "type": "boolean", "default": 5 } } } }""", "default must be boolean"),
+		("""{ "configKey": "Demo", "global": { "type": "object", "properties": { "A": { "type": "string", "enum": ["a", 5] } } } }""", "every enum value must be string"),
+		("""{ "configKey": "Demo", "global": { "type": "object", "properties": { "A": { "type": "integer", "minimum": 10, "maximum": 1 } } } }""", "minimum is greater than maximum"),
+		("""{ "configKey": "Demo", "global": { "type": "object", "properties": { "A": { "type": "string", "format": null } } } }""", "format"),
+		("""{ "configKey": "Demo", "global": { "type": "object", "properties": { "A": { "type": "integer", "minimum": null } } } }""", "minimum must be a number"),
+		("""{ "configKey": "Demo", "global": { "type": "object", "properties": { "A": { "type": "string", "title": 5 } } } }""", "title must be a string"),
+		("""{ "configKey": "Demo", "title": 5, "global": { "type": "object" } }""", "title must be a string"),
+		("""{ "configKey": "Demo", "global": { "type": "object", "properties": { "A": { "type": "array" } } } }""", "an array needs items")
 	}.Select(static test => new object[] { test.Json, test.ErrorPart });
 
 	[TestMethod]

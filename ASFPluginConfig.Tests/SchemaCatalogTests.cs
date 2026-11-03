@@ -31,6 +31,17 @@ internal sealed class SchemaCatalogTests {
 	}
 
 	[TestMethod]
+	internal void AnAssemblyThatThrowsIsLoggedAndSkipped() {
+		List<string> errors = [];
+
+		SchemaCatalog catalog = SchemaCatalog.Load([new ThrowingAssembly(), typeof(SchemaCatalogTests).Assembly], errors.Add);
+
+		Assert.HasCount(1, catalog.Schemas);
+		Assert.HasCount(1, errors);
+		Assert.Contains("BadImageFormatException", errors[0]);
+	}
+
+	[TestMethod]
 	internal void KeepsTheFirstOfTwoSchemasForTheSameKey() {
 		List<string> errors = [];
 		const string json = """{ "configKey": "Same", "global": { "type": "object" } }""";

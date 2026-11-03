@@ -22,8 +22,13 @@ internal sealed class ASFPluginConfig : IGitHubPluginUpdates, IWebInterface {
 	public string WebPath => PageWebPath;
 
 	public Task OnLoaded() {
-		// ASF loads every plugin assembly before it calls OnLoaded, so the scan sees them all
-		Catalog = SchemaCatalog.Load(AppDomain.CurrentDomain.GetAssemblies(), static message => ASF.ArchiLogger.LogGenericError(message));
+		// ASF loads every plugin assembly before it calls OnLoaded, so the scan sees them all. A throw here would make ASF
+		// drop the whole plugin, so a failed scan leaves the catalog empty instead
+		try {
+			Catalog = SchemaCatalog.Load(AppDomain.CurrentDomain.GetAssemblies(), static message => ASF.ArchiLogger.LogGenericError(message));
+		} catch (Exception e) {
+			ASF.ArchiLogger.LogGenericException(e);
+		}
 
 		ASF.ArchiLogger.LogGenericInfo($"{Name} {Version} loaded, page at {PageWebPath}/, {Catalog.Schemas.Length} config schema(s) found");
 

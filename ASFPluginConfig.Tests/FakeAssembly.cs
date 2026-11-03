@@ -1,3 +1,4 @@
+using System;
 using System.IO;
 using System.Reflection;
 using System.Text;
@@ -15,4 +16,12 @@ internal sealed class FakeAssembly(string name, string schemaJson) : Assembly {
 	public override string[] GetManifestResourceNames() => [ResourceName];
 
 	public override Stream? GetManifestResourceStream(string name) => name == ResourceName ? new MemoryStream(Encoding.UTF8.GetBytes(schemaJson)) : null;
+}
+
+internal sealed class ThrowingAssembly : Assembly {
+	public override string FullName => "Throwing";
+
+	public override AssemblyName GetName() => new("Throwing");
+
+	public override string[] GetManifestResourceNames() => throw new BadImageFormatException("broken image");
 }

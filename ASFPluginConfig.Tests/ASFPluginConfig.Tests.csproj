@@ -8,6 +8,11 @@
 		<PackageReference Include="MSTest" />
 	</ItemGroup>
 
+	<!-- The same contract a plugin follows: the schema as a manifest resource named <AssemblyName>.config.schema.json -->
+	<ItemGroup>
+		<EmbeddedResource Include="config.schema.json" LogicalName="$(AssemblyName).config.schema.json" />
+	</ItemGroup>
+
 	<ItemGroup>
 		<ProjectReference Include="..\ArchiSteamFarm\ArchiSteamFarm\ArchiSteamFarm.csproj" />
 		<ProjectReference Include="..\ASFPluginConfig\ASFPluginConfig.csproj" />

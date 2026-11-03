@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+	<!-- A do-nothing plugin that embeds a config schema: the smoke test, screenshots and manual checks load it next to the host -->
+	<PropertyGroup>
+		<OutputType>Library</OutputType>
+		<AllowUnsafeBlocks>false</AllowUnsafeBlocks>
+		<IsPackable>false</IsPackable>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<PackageReference Include="JetBrains.Annotations.Sources" PrivateAssets="all" />
+		<PackageReference Include="Microsoft.AspNetCore.OpenApi" IncludeAssets="compile" />
+		<PackageReference Include="System.Composition.AttributedModel" IncludeAssets="compile" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<ProjectReference Include="..\ArchiSteamFarm\ArchiSteamFarm\ArchiSteamFarm.csproj" ExcludeAssets="all" Private="false" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<EmbeddedResource Include="config.schema.json" LogicalName="$(AssemblyName).config.schema.json" />
+	</ItemGroup>
+</Project>

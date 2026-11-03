@@ -149,7 +149,26 @@ async function loadForm(container, path, editor, notes, message = "") {
 			return;
 		}
 
-		if (busy || !window.confirm(`${notes.before} Save now?`)) {
+		if (busy) {
+			return;
+		}
+
+		let value;
+
+		// A value the editor rejects is reported before asking to save it
+		try {
+			value = editor.read(form);
+		} catch (error) {
+			if (!error.invalid) {
+				throw error;
+			}
+
+			announce(result, error.message);
+
+			return;
+		}
+
+		if (!window.confirm(`${notes.before} Save now?`)) {
 			return;
 		}
 
@@ -159,11 +178,10 @@ async function loadForm(container, path, editor, notes, message = "") {
 		SchemaForm.showErrors(form, []);
 
 		try {
-			const value = editor.read(form);
 			const { status: code, body: answer } = await request(path, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ Value: value, Version: version, ClearSecrets: editor.clears?.(form) ?? [] })
+				body: editor.body?.(value, version) ?? JSON.stringify({ Value: value, Version: version, ClearSecrets: editor.clears?.(form) ?? [] })
 			});
 
 			if (code === 401) {
@@ -200,7 +218,7 @@ async function loadForm(container, path, editor, notes, message = "") {
 				announce(result, answer?.Message || `ASF answered ${code}.`);
 			}
 		} catch (error) {
-			announce(result, error.invalid ? error.message : `Cannot reach ASF: ${error.message}`);
+			announce(result, `Cannot reach ASF: ${error.message}`);
 		} finally {
 			busy = false;
 
@@ -236,11 +254,11 @@ function rawEditor() {
 			text.spellcheck = false;
 			text.className = "raw";
 			text.setAttribute("aria-describedby", `${id}-hint`);
-			text.value = stored.Value === null || stored.Value === undefined ? "" : JSON.stringify(stored.Value, null, 2);
+			text.value = stored.Text ?? "";
 			const hint = document.createElement("p");
 			hint.className = "hint";
 			hint.id = `${id}-hint`;
-			hint.textContent = stored.Value === null || stored.Value === undefined ? "The file has no such key yet; saving adds it." : "Saving null removes the key.";
+			hint.textContent = stored.Text === null || stored.Text === undefined ? "The file has no such key yet; saving adds it." : "Saving null removes the key.";
 			const field = document.createElement("div");
 			field.className = "field";
 			field.append(label, text, hint);
@@ -251,10 +269,11 @@ function rawEditor() {
 			const text = form.querySelector(`#${id}`);
 
 			try {
-				const value = JSON.parse(text.value);
+				JSON.parse(text.value);
 				text.removeAttribute("aria-invalid");
 
-				return value;
+				// The text itself is sent, since JSON.parse would round numbers past 2^53 (a SteamID64)
+				return text.value;
 			} catch (error) {
 				text.setAttribute("aria-invalid", "true");
 				text.focus();
@@ -263,7 +282,9 @@ function rawEditor() {
 
 				throw invalid;
 			}
-		}
+		},
+		// Parsed above, so the text is exactly one JSON value
+		body: (json, version) => `{"Value":${json},"Version":${JSON.stringify(version)}}`
 	};
 }
 
@@ -398,12 +419,21 @@ function rawCard() {
 		const editorHost = document.createElement("div");
 		const base = () => scope.value ? `PluginConfig/Raw/Bots/${encodeURIComponent(scope.value)}` : "PluginConfig/Raw/Global";
 
+		let listTicket = 0;
+
 		const listKeys = async () => {
+			const ticket = ++listTicket;
 			const names = await api(base());
-			keys.replaceChildren(...(names ?? []).map(name => new Option(name)));
+
+			// A late answer for the file picked before must not fill the list of the one picked now
+			if (ticket === listTicket) {
+				keys.replaceChildren(...(names ?? []).map(name => new Option(name)));
+			}
 		};
 
 		scope.addEventListener("change", () => {
+			// Drops a load still running for the previous file, so its form never shows under this one
+			editorHost.loadTicket = (editorHost.loadTicket ?? 0) + 1;
 			editorHost.replaceChildren();
 			listKeys().catch(reportError);
 		});

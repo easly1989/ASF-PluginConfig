@@ -18,6 +18,11 @@ internal static class RawKeys {
 			return $"{key} is one of ASF's own settings";
 		}
 
+		// Named explicitly too: the catalog is empty when the schema scan fails, and the opt-in must not be raw-editable
+		if (string.Equals(key, HostSettings.ConfigKey, StringComparison.OrdinalIgnoreCase)) {
+			return $"{key} holds this plugin's own settings, which have their own form";
+		}
+
 		return catalog.Schemas.FirstOrDefault(schema => string.Equals(schema.ConfigKey, key, StringComparison.OrdinalIgnoreCase)) is { } owner
 			? $"{key} belongs to {owner.Title}, which has its own form"
 			: null;

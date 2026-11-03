@@ -1,3 +1,6 @@
+using System.IO;
+using System.Text;
+using System.Text.Encodings.Web;
 using System.Text.Json;
 
 namespace ASFPluginConfig;
@@ -19,4 +22,15 @@ internal static class JsonUtil {
 	}
 
 	internal static string? String(JsonElement element, string name) => Property(element, name) is { ValueKind: JsonValueKind.String } value ? value.GetString() : null;
+
+	// Numbers keep their exact text: JsonElement.WriteTo copies the raw token
+	internal static string Indented(JsonElement element) {
+		using MemoryStream stream = new();
+
+		using (Utf8JsonWriter writer = new(stream, new JsonWriterOptions { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping, Indented = true, IndentSize = 2 })) {
+			element.WriteTo(writer);
+		}
+
+		return Encoding.UTF8.GetString(stream.ToArray());
+	}
 }

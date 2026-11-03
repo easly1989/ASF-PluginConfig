@@ -107,7 +107,7 @@ public sealed class PluginConfigController : ArchiController {
 
 	[EndpointSummary("Gets one key's raw value from ASF.json, as stored, with the version a save must send back")]
 	[HttpGet("Raw/Global/{key:required}")]
-	[ProducesResponseType<GenericResponse<ConfigValue>>((int) HttpStatusCode.OK)]
+	[ProducesResponseType<GenericResponse<RawValue>>((int) HttpStatusCode.OK)]
 	[ProducesResponseType<GenericResponse>((int) HttpStatusCode.BadRequest)]
 	public ActionResult<GenericResponse> RawGlobalGet(string key) => RawRead(GlobalConfigPath, key);
 
@@ -127,7 +127,7 @@ public sealed class PluginConfigController : ArchiController {
 
 	[EndpointSummary("Gets one key's raw value from a bot's config file, as stored, with the version a save must send back")]
 	[HttpGet("Raw/Bots/{bot:required}/{key:required}")]
-	[ProducesResponseType<GenericResponse<ConfigValue>>((int) HttpStatusCode.OK)]
+	[ProducesResponseType<GenericResponse<RawValue>>((int) HttpStatusCode.OK)]
 	[ProducesResponseType<GenericResponse>((int) HttpStatusCode.BadRequest)]
 	[ProducesResponseType<GenericResponse>((int) HttpStatusCode.NotFound)]
 	public ActionResult<GenericResponse> RawBotGet(string bot, string key) => BotFiles.PathOf(ConfigDirectory, bot) is { } path ? RawRead(path, key) : NoBot(bot);
@@ -160,7 +160,7 @@ public sealed class PluginConfigController : ArchiController {
 		ConfigFile.Snapshot snapshot = ConfigFile.Read(path, key);
 
 		return snapshot.Outcome switch {
-			ConfigFile.Outcome.Written => Ok(new GenericResponse<ConfigValue>(new ConfigValue(snapshot.Value, snapshot.Version!, []))),
+			ConfigFile.Outcome.Written => Ok(new GenericResponse<RawValue>(new RawValue(snapshot.Value is { } value ? JsonUtil.Indented(value) : null, snapshot.Version!))),
 			ConfigFile.Outcome.Missing => StatusCode((int) HttpStatusCode.NotFound, new GenericResponse(false, $"{Path.GetFileName(path)} does not exist")),
 			_ => StatusCode((int) HttpStatusCode.InternalServerError, new GenericResponse(false, $"{Path.GetFileName(path)} cannot be read ({snapshot.Outcome})"))
 		};

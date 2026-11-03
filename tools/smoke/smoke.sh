@@ -224,7 +224,7 @@ case "$keys" in
 	*) fail "unexpected raw key list: $keys" ;;
 esac
 
-for key in IPCPassword DemoNotifier ASFPluginConfig; do
+for key in IPCPassword WebProxyPassword DemoNotifier ASFPluginConfig; do
 	code=$(curl -sS --max-time 20 -o "$work/raw.json" -w '%{http_code}' -H "Authentication: ${password}" "${raw}/Global/${key}")
 	[ "$code" = 400 ] || fail "a raw read of ${key} answered $code, expected 400"
 	grep -q -- "$token" "$work/raw.json" && fail "a raw read returned the stored secret"
@@ -244,14 +244,16 @@ code=$(curl -sS --max-time 20 -o "$work/raw.json" -w '%{http_code}' -X POST -H "
 [ "$(sha256sum "$work/config/smoke.json")" = "$smoke_before" ] || fail "invalid JSON changed smoke.json"
 echo "OK: invalid JSON is refused with nothing written"
 
-code=$(curl -sS --max-time 20 -o "$work/raw.json" -w '%{http_code}' -X POST -H "Authentication: ${password}" -H 'Content-Type: application/json' -d "{\"Value\":[1,\"two\"],\"Version\":\"${raw_version}\"}" "${raw}/Bots/smoke/OtherPlugin")
+code=$(curl -sS --max-time 20 -o "$work/raw.json" -w '%{http_code}' -X POST -H "Authentication: ${password}" -H 'Content-Type: application/json' -d "{\"Value\":[1,\"two\",76561198012345678],\"Version\":\"${raw_version}\"}" "${raw}/Bots/smoke/OtherPlugin")
 [ "$code" = 200 ] || fail "a raw bot save answered $code: $(cat "$work/raw.json")"
 "$python" - "$work/config/smoke.json" <<'PY' || fail "smoke.json is not what the raw save should have written"
 import json, sys
 config = json.load(open(sys.argv[1], encoding="utf-8"))
-assert config["OtherPlugin"] == [1, "two"] and config["DemoNotifier"]["Unknown"] == 1, config
+assert config["OtherPlugin"] == [1, "two", 76561198012345678] and config["DemoNotifier"]["Unknown"] == 1, config
 print("OK: the raw save wrote its key into smoke.json and left the rest")
 PY
+curl -fsS --max-time 20 -H "Authentication: ${password}" "${raw}/Bots/smoke/OtherPlugin" | grep -q '76561198012345678' || fail "the raw read did not return the SteamID64 exactly"
+echo "OK: the raw read returns a number past 2^53 as written"
 sleep 2
 
 stored=$(curl -fsS --max-time 20 -H "Authentication: ${password}" "${ipc}/Api/PluginConfig/Plugins/DemoNotifier/Global") || fail "reading the global value failed"

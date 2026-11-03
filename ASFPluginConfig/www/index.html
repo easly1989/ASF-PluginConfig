@@ -19,8 +19,8 @@
 		<ul id="plugins" aria-label="Plugins" hidden></ul>
 		<section id="updates" aria-labelledby="updates-title" hidden>
 			<h2 id="updates-title">Plugin updates</h2>
-			<p class="hint">ASF looks for updates of the plugins that PluginsUpdateMode and PluginsUpdateList in ASF.json allow, installs them, and restarts if anything was updated.</p>
-			<button type="button" id="update">Update plugins</button>
+			<p class="hint" id="update-hint"></p>
+			<button type="button" id="update" aria-describedby="update-hint">Update plugins</button>
 			<p id="update-result" class="result" role="status"></p>
 		</section>
 	</main>

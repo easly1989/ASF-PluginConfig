@@ -37,6 +37,7 @@ function askForPassword(message) {
 	login.hidden = false;
 	pluginList.hidden = true;
 	updates.hidden = true;
+	updateResult.textContent = "";
 	show(message);
 	passwordInput.focus();
 }
@@ -53,15 +54,14 @@ async function request(path, init = {}) {
 	return { status: response.status, body: await response.json().catch(() => null) };
 }
 
-// For reads: a 401 or 403 means the password is wrong or ASF refuses this address, and the page shows why
-async function api(path) {
-	const { status: code, body } = await request(path);
-
+// A 401 or 403 means the password is wrong or ASF refuses this address: the page shows why and forgets the password,
+// so a reload does not resend a wrong one toward ASF's ban. Returns whether it handled the answer
+function refused(code) {
 	if (code === 401) {
 		storage(s => s.removeItem(passwordKey));
 		askForPassword(password ? "Wrong IPC password." : "Enter ASF's IPC password.");
 
-		return null;
+		return true;
 	}
 
 	if (code === 403) {
@@ -71,6 +71,16 @@ async function api(path) {
 		updates.hidden = true;
 		show("Access denied by ASF: too many wrong passwords from this address (retry in an hour), or ASF has no IPC password and you are not on localhost.");
 
+		return true;
+	}
+
+	return false;
+}
+
+async function api(path) {
+	const { status: code, body } = await request(path);
+
+	if (refused(code)) {
 		return null;
 	}
 
@@ -364,6 +374,7 @@ async function load(typed) {
 	}
 
 	renderPlugins(plugins);
+	document.getElementById("update-hint").textContent = `ASF looks for updates of the plugins that PluginsUpdateMode and PluginsUpdateList in ASF.json allow, installs them, and ${host.AutoRestart ? "restarts" : "stops (AutoRestart is off)"} if anything was updated. By default that list is empty, so nothing updates until you add plugin assembly names to it.`;
 	updates.hidden = false;
 	show(`${host.Name} ${host.Version} · ${plugins.length} plugin(s) with a config schema`);
 }
@@ -374,12 +385,13 @@ function reportError(error) {
 
 // ASF does the update itself; the host has no endpoint that downloads or installs anything
 updateButton.addEventListener("click", async () => {
-	if (updateButton.getAttribute("aria-disabled") || !window.confirm("ASF updates the plugins its settings allow, and restarts if anything changed. Update now?")) {
+	if (updateButton.getAttribute("aria-disabled") || !window.confirm(`ASF updates the plugins its settings allow, and ${host.AutoRestart ? "restarts" : "stops (AutoRestart is off)"} if anything changed. Update now?`)) {
 		return;
 	}
 
 	updateButton.setAttribute("aria-disabled", "true");
 	announce(updateResult, "Checking for plugin updates…");
+	let answered = false;
 
 	try {
 		const { status: code, body } = await request("Plugins/Update", {
@@ -388,15 +400,18 @@ updateButton.addEventListener("click", async () => {
 			body: "{}"
 		});
 
-		if (code === 401) {
-			askForPassword("Wrong IPC password.");
-		} else {
-			announce(updateResult, body?.Message || body?.Result || `ASF answered ${code}.`);
+		if (!refused(code)) {
+			// ASF's message is localized and does not say whether it updated anything, and if it did it is about to go
+			// away; so the button stays off until the page is reloaded
+			answered = code >= 200 && code < 300 && body?.Success;
+			announce(updateResult, answered ? `${body.Message} Reload the page to check again.` : body?.Message || `ASF answered ${code}.`);
 		}
 	} catch (error) {
 		announce(updateResult, `Cannot reach ASF: ${error.message}`);
 	} finally {
-		updateButton.removeAttribute("aria-disabled");
+		if (!answered) {
+			updateButton.removeAttribute("aria-disabled");
+		}
 	}
 });
 

@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Security.Cryptography;
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Threading;
 
@@ -19,7 +20,8 @@ internal static class ConfigFile {
 		Written,
 		Missing,
 		Stale,
-		Unreadable
+		Unreadable,
+		Unwritable
 	}
 
 	internal static Snapshot Read(string path, string key) {
@@ -70,8 +72,22 @@ internal static class ConfigFile {
 			}
 
 			string temp = path + TempSuffix;
-			File.WriteAllBytes(temp, updated);
-			File.Move(temp, path, true);
+
+			try {
+				WriteDurably(temp, updated);
+
+				try {
+					File.Move(temp, path, true);
+				} catch (IOException) {
+					// A single file bind-mounted into a container cannot be replaced, only rewritten in place
+					WriteDurably(path, updated);
+					File.Delete(temp);
+				}
+			} catch (Exception e) when (e is IOException or UnauthorizedAccessException) {
+				TryDelete(temp);
+
+				return (Outcome.Unwritable, null);
+			}
 
 			return (Outcome.Written, Version(updated));
 		}
@@ -79,10 +95,25 @@ internal static class ConfigFile {
 
 	internal static string Version(byte[] bytes) => Convert.ToHexString(SHA256.HashData(bytes));
 
+	private static void TryDelete(string path) {
+		try {
+			File.Delete(path);
+		} catch (Exception e) when (e is IOException or UnauthorizedAccessException) {
+			// Nothing more to do; the next save overwrites it
+		}
+	}
+
+	// Like ASF's own writer: flushed to disk before it replaces anything
+	private static void WriteDurably(string path, byte[] bytes) {
+		using FileStream stream = new(path, FileMode.Create, FileAccess.Write, FileShare.None);
+		stream.Write(bytes);
+		stream.Flush(true);
+	}
+
 	private static byte[] Rewrite(JsonElement root, string key, JsonElement schema, JsonElement? value) {
 		using MemoryStream stream = new();
 
-		using (Utf8JsonWriter writer = new(stream, new JsonWriterOptions { Indented = true })) {
+		using (Utf8JsonWriter writer = new(stream, new JsonWriterOptions { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping, Indented = true, IndentCharacter = '\t', IndentSize = 1 })) {
 			writer.WriteStartObject();
 			bool done = false;
 

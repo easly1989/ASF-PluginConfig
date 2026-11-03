@@ -7,6 +7,7 @@ const login = document.getElementById("login");
 const passwordInput = document.getElementById("password");
 const pluginList = document.getElementById("plugins");
 let password = null;
+let host = null;
 
 function storage(action) {
 	try {
@@ -77,88 +78,124 @@ async function api(path) {
 	return body.Result;
 }
 
-function settingsEditor(plugin, scope, schema, restartNote, savedNote) {
+// Loads one stored value into a form inside container; saving posts it back with the version it was read at
+async function loadForm(container, path, schema, notes, message = "") {
+	const loading = document.createElement("p");
+	loading.textContent = "Loading…";
+	container.replaceChildren(loading);
+	const stored = await api(path).catch(error => {
+		loading.textContent = `Cannot reach ASF: ${error.message}`;
+	});
+
+	if (!stored) {
+		loading.textContent ||= "Cannot load the settings.";
+
+		return;
+	}
+
+	let version = stored.Version;
+	const form = document.createElement("form");
+	form.noValidate = true;
+	form.append(...SchemaForm.fields(schema, stored.Value ?? {}, ""));
+	const note = document.createElement("p");
+	note.className = "hint";
+	note.textContent = notes.before;
+	const save = document.createElement("button");
+	save.type = "submit";
+	save.textContent = "Save";
+	const result = document.createElement("p");
+	result.setAttribute("role", "status");
+	result.className = "result";
+	form.append(note, save, result);
+	container.replaceChildren(form);
+	let busy = false;
+
+	if (message) {
+		announce(result, message);
+	}
+
+	form.addEventListener("submit", async event => {
+		event.preventDefault();
+
+		if (busy || !window.confirm(`${notes.before} Save now?`)) {
+			return;
+		}
+
+		// aria-disabled keeps focus on the button, which disabled would drop to <body>
+		busy = true;
+		save.setAttribute("aria-disabled", "true");
+		SchemaForm.showErrors(form, []);
+
+		try {
+			const value = SchemaForm.read(schema, form, "");
+			const { status: code, body: answer } = await request(path, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ Value: value, Version: version })
+			});
+
+			if (code === 401) {
+				askForPassword("Wrong IPC password.");
+			} else if (code === 400 && Array.isArray(answer?.Result)) {
+				const unplaced = SchemaForm.showErrors(form, answer.Result);
+				const count = answer.Result.length;
+				announce(result, [`${answer.Message}: ${count} field${count === 1 ? "" : "s"} to fix.`, ...unplaced].join(" "));
+			} else if (code === 409) {
+				// The file changed elsewhere: show what it holds now, so the next save starts from it
+				await loadForm(container, path, schema, notes, `${answer?.Message ?? "The file changed."} The form now shows its current content; your edits were not saved.`);
+
+				return;
+			} else if (code >= 200 && code < 300 && answer?.Success) {
+				version = answer.Result;
+				announce(result, notes.after);
+			} else {
+				announce(result, answer?.Message || `ASF answered ${code}.`);
+			}
+		} catch (error) {
+			announce(result, `Cannot reach ASF: ${error.message}`);
+		} finally {
+			busy = false;
+			save.removeAttribute("aria-disabled");
+		}
+	});
+}
+
+// A collapsible section whose content is built the first time it opens
+function section(title, plugin, build) {
 	const details = document.createElement("details");
 	const summary = document.createElement("summary");
-	summary.textContent = scope === "Global" ? "Global settings" : "Bot settings";
-	details.append(summary);
+	const context = document.createElement("span");
+	context.className = "visually-hidden";
+	context.textContent = ` for ${plugin.Title}`;
+	summary.append(title, context);
 	const body = document.createElement("div");
 	body.className = "editor";
-	details.append(body);
-	const path = `PluginConfig/Plugins/${encodeURIComponent(plugin.ConfigKey)}/${scope}`;
+	details.append(summary, body);
+	let built = false;
 
-	details.addEventListener("toggle", async () => {
-		if (!details.open || body.childElementCount > 0) {
-			return;
+	details.addEventListener("toggle", () => {
+		if (details.open && !built) {
+			built = true;
+			build(body).catch(error => {
+				body.textContent = `Cannot reach ASF: ${error.message}`;
+			});
 		}
-
-		const loading = document.createElement("p");
-		loading.textContent = "Loading…";
-		body.append(loading);
-		const stored = await api(path).catch(error => {
-			loading.textContent = `Cannot reach ASF: ${error.message}`;
-		});
-
-		if (!stored) {
-			loading.textContent ||= "Cannot load the settings.";
-
-			return;
-		}
-
-		let version = stored.Version;
-		const form = document.createElement("form");
-		form.noValidate = true;
-		form.append(...SchemaForm.fields(schema, stored.Value ?? {}, ""));
-		const note = document.createElement("p");
-		note.className = "hint";
-		note.textContent = restartNote;
-		const save = document.createElement("button");
-		save.type = "submit";
-		save.textContent = "Save";
-		const result = document.createElement("p");
-		result.setAttribute("role", "status");
-		result.className = "result";
-		form.append(note, save, result);
-		body.replaceChildren(form);
-
-		form.addEventListener("submit", async event => {
-			event.preventDefault();
-
-			if (!window.confirm(`${restartNote} Save now?`)) {
-				return;
-			}
-
-			save.disabled = true;
-			SchemaForm.showErrors(form, []);
-
-			try {
-				const value = SchemaForm.read(schema, form, "");
-				const { status: code, body: answer } = await request(path, {
-					method: "POST",
-					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({ Value: value, Version: version })
-				});
-
-				if (code === 401) {
-					askForPassword("Wrong IPC password.");
-				} else if (code === 400 && Array.isArray(answer?.Result)) {
-					const unplaced = SchemaForm.showErrors(form, answer.Result);
-					announce(result, [answer.Message, ...unplaced].join(" "));
-				} else if (code >= 200 && code < 300 && answer?.Success) {
-					version = answer.Result;
-					announce(result, savedNote);
-				} else {
-					announce(result, answer?.Message || `ASF answered ${code}.`);
-				}
-			} catch (error) {
-				announce(result, `Cannot reach ASF: ${error.message}`);
-			} finally {
-				save.disabled = false;
-			}
-		});
 	});
 
 	return details;
+}
+
+function pluginPath(plugin) {
+	return `PluginConfig/Plugins/${encodeURIComponent(plugin.ConfigKey)}`;
+}
+
+function globalEditor(plugin) {
+	// ASF restarts after any ASF.json change, or stops when AutoRestart is off
+	const notes = host.AutoRestart
+		? { before: "Saving writes ASF.json, and ASF restarts to apply it.", after: "Saved to ASF.json. ASF is restarting to apply it." }
+		: { before: "Saving writes ASF.json, and ASF stops (AutoRestart is off), so start it again to apply the change.", after: "Saved to ASF.json. ASF is stopping; start it again to apply the change." };
+
+	return section("Global settings", plugin, body => loadForm(body, `${pluginPath(plugin)}/Global`, plugin.Global, notes));
 }
 
 function renderPlugins(plugins) {
@@ -189,7 +226,7 @@ function renderPlugins(plugins) {
 		card.append(meta);
 
 		if (plugin.Global) {
-			card.append(settingsEditor(plugin, "Global", plugin.Global, "Saving writes ASF.json, and ASF restarts to apply it.", "Saved to ASF.json. ASF is restarting to apply it."));
+			card.append(globalEditor(plugin));
 		}
 
 		const item = document.createElement("li");
@@ -203,7 +240,7 @@ function renderPlugins(plugins) {
 // ASF bans an IP for an hour after 5 wrong passwords, so a password is stored only once ASF accepted it
 async function load(typed) {
 	password = typed ?? storage(s => s.getItem(passwordKey));
-	const host = await api("PluginConfig");
+	host = await api("PluginConfig");
 
 	if (!host) {
 		return;

@@ -19,8 +19,9 @@ public sealed class ConfigValue {
 }
 
 public sealed class ConfigWriteRequest {
-	// null removes the plugin's key from the file
+	// An explicit null removes the plugin's key from the file; a missing Value is rejected
 	[JsonInclude]
+	[JsonRequired]
 	public JsonElement? Value { get; private init; }
 
 	[JsonInclude]

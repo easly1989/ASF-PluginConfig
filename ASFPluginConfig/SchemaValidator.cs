@@ -7,6 +7,9 @@ namespace ASFPluginConfig;
 
 // Checks a value against a schema PluginSchema already accepted, so only the supported keywords appear here
 internal static class SchemaValidator {
+	// Beyond 2^53 a browser's numbers lose digits, so the page could not show or save the value exactly
+	private const double MaxSafeInteger = 9007199254740991;
+
 	internal static List<FieldError> Validate(JsonElement schema, JsonElement value) {
 		List<FieldError> errors = [];
 		Check(schema, value, "", errors);
@@ -23,7 +26,19 @@ internal static class SchemaValidator {
 			return;
 		}
 
-		if (JsonUtil.Property(schema, "enum") is { } allowed && !allowed.EnumerateArray().Any(option => option.GetRawText() == value.GetRawText())) {
+		if ((type is "integer" or "number") && !double.IsFinite(value.GetDouble())) {
+			errors.Add(new FieldError(path, "must be a finite number"));
+
+			return;
+		}
+
+		if ((type == "integer") && (Math.Abs(value.GetDouble()) > MaxSafeInteger)) {
+			errors.Add(new FieldError(path, "is too large to edit safely; store it as a string instead"));
+
+			return;
+		}
+
+		if (JsonUtil.Property(schema, "enum") is { } allowed && !allowed.EnumerateArray().Any(option => SameValue(option, value))) {
 			errors.Add(new FieldError(path, $"must be one of {string.Join(", ", allowed.EnumerateArray().Select(static option => option.GetRawText()))}"));
 		}
 
@@ -80,6 +95,13 @@ internal static class SchemaValidator {
 		}
 	}
 
+	private static bool SameValue(JsonElement left, JsonElement right) => (left.ValueKind == right.ValueKind) && left.ValueKind switch {
+		JsonValueKind.String => left.GetString() == right.GetString(),
+		JsonValueKind.Number => left.GetDouble() == right.GetDouble(),
+		JsonValueKind.True or JsonValueKind.False or JsonValueKind.Null => true,
+		_ => left.GetRawText() == right.GetRawText()
+	};
+
 	private static string Article(string type) => type is "object" or "integer" or "array" ? $"an {type}" : $"a {type}";
 
 	private static bool HasType(JsonElement value, string type) => type switch {
@@ -88,7 +110,7 @@ internal static class SchemaValidator {
 		"string" => value.ValueKind == JsonValueKind.String,
 		"boolean" => value.ValueKind is JsonValueKind.True or JsonValueKind.False,
 		"number" => value.ValueKind == JsonValueKind.Number,
-		"integer" => (value.ValueKind == JsonValueKind.Number) && value.TryGetInt64(out _),
+		"integer" => (value.ValueKind == JsonValueKind.Number) && (Math.Floor(value.GetDouble()) == value.GetDouble()),
 		_ => false
 	};
 }

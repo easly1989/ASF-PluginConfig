@@ -50,9 +50,14 @@ const SchemaForm = (() => {
 					input.append(element("option", { value: JSON.stringify(option), textContent: String(option) }));
 				}
 
+				// A stored value the schema no longer allows stays visible instead of being dropped on the next save
+				if (value !== undefined && !schema.enum.some(option => JSON.stringify(option) === JSON.stringify(value))) {
+					input.append(element("option", { value: JSON.stringify(value), textContent: `${String(value)} (current, not allowed)` }));
+				}
+
 				input.value = value !== undefined ? JSON.stringify(value) : (required && schema.default !== undefined ? JSON.stringify(schema.default) : "");
 			} else if (schema.type === "array") {
-				input = element("textarea", { id, rows: 3, value: (value ?? []).join("\n") });
+				input = element("textarea", { id, rows: 3, value: Array.isArray(value) ? value.join("\n") : value === undefined ? "" : String(value) });
 				const hint = element("p", { className: "hint", id: `${id}-format`, textContent: "One value per line." });
 				describedBy.push(hint.id);
 				wrapper.append(input, hint);
@@ -109,7 +114,9 @@ const SchemaForm = (() => {
 				const fieldset = element("fieldset", {}, element("legend", { textContent: child.title || name }));
 
 				if (child.description) {
-					fieldset.append(element("p", { className: "hint", textContent: child.description }));
+					const hint = element("p", { className: "hint", id: `group-${++counter}`, textContent: child.description });
+					fieldset.setAttribute("aria-describedby", hint.id);
+					fieldset.append(hint);
 				}
 
 				fieldset.append(...fields(child, childValue, path));
@@ -141,12 +148,9 @@ const SchemaForm = (() => {
 		for (const [name, child] of Object.entries(schema.properties ?? {})) {
 			const path = prefix ? `${prefix}.${name}` : name;
 
+			// Sent even when empty, so stored keys the schema does not know survive inside the group
 			if (child.type === "object") {
-				const nested = read(child, container, path);
-
-				if (Object.keys(nested).length > 0) {
-					value[name] = nested;
-				}
+				value[name] = read(child, container, path);
 
 				continue;
 			}
@@ -169,6 +173,9 @@ const SchemaForm = (() => {
 				if (items.length > 0) {
 					value[name] = items.map(item => parseItem(item, child.items.type));
 				}
+			} else if (input.validity?.badInput) {
+				// Not a number: send null, so the server names the field instead of the value vanishing
+				value[name] = null;
 			} else if (input.value !== "") {
 				value[name] = child.type === "string" ? input.value : Number(input.value);
 			}
@@ -181,6 +188,10 @@ const SchemaForm = (() => {
 		for (const slot of container.querySelectorAll("[data-error-for]")) {
 			slot.hidden = true;
 			slot.textContent = "";
+		}
+
+		for (const invalid of container.querySelectorAll("[aria-invalid]")) {
+			invalid.removeAttribute("aria-invalid");
 		}
 
 		const unplaced = [];
@@ -198,6 +209,7 @@ const SchemaForm = (() => {
 
 			slot.textContent = slot.textContent ? `${slot.textContent} ${Message}` : `${Path.slice(fieldPath.length)} ${Message}`.trim();
 			slot.hidden = false;
+			container.querySelector(`[data-path="${CSS.escape(fieldPath)}"]`)?.setAttribute("aria-invalid", "true");
 		}
 
 		// Focus the first invalid field in page order, not in the order the server listed them

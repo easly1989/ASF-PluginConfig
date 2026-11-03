@@ -87,6 +87,17 @@ internal sealed class ConfigFileTests {
 	}
 
 	[TestMethod]
+	internal void WritesLikeAsfWithTabsAndUnescapedText() {
+		File.WriteAllText(Path, """{ "Demo": { "Url": "https://e.org" } }""");
+
+		ConfigFile.Write(Path, "Demo", Schema, Value("""{ "Url": "https://e.org/?a=1&b=<é>" }"""), ConfigFile.Read(Path, "Demo").Version!);
+
+		string written = File.ReadAllText(Path);
+		Assert.Contains("\t\"Demo\"", written);
+		Assert.Contains("https://e.org/?a=1&b=<é>", written);
+	}
+
+	[TestMethod]
 	internal void AStaleVersionWritesNothing() {
 		File.WriteAllText(Path, """{ "Demo": { "Url": "https://e.org" } }""");
 		string version = ConfigFile.Read(Path, "Demo").Version!;

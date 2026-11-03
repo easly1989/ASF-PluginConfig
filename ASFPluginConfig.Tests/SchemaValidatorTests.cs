@@ -18,6 +18,9 @@ internal sealed class SchemaValidatorTests {
 				"Minutes": { "type": "integer", "minimum": 1, "maximum": 1440 },
 				"Ratio": { "type": "number" },
 				"Mode": { "type": "string", "enum": ["a", "b"] },
+				"Level": { "type": "integer", "enum": [1.0, 2] },
+				"Accent": { "type": "string", "enum": ["\u00e9"] },
+				"Big": { "type": "integer" },
 				"Tags": { "type": "array", "items": { "type": "string" } },
 				"Events": { "type": "object", "properties": { "Stopped": { "type": "boolean" } } }
 			}
@@ -43,8 +46,17 @@ internal sealed class SchemaValidatorTests {
 		("""{ "Url": "https://e.org", "Mode": "c" }""", "Mode", "one of"),
 		("""{ "Url": "https://e.org", "Tags": ["x", 1] }""", "Tags[1]", "a string"),
 		("""{ "Url": "https://e.org", "Events": { "Unknown": true } }""", "Events.Unknown", "not a setting"),
-		("""{ "Url": "https://e.org", "Extra": 1 }""", "Extra", "not a setting")
+		("""{ "Url": "https://e.org", "Extra": 1 }""", "Extra", "not a setting"),
+		("""{ "Url": "https://e.org", "Ratio": 1e999 }""", "Ratio", "finite"),
+		("""{ "Url": "https://e.org", "Big": 76561198000000001 }""", "Big", "too large")
 	}.Select(static test => new object[] { test.Json, test.Path, test.MessagePart });
+
+	[TestMethod]
+	internal void ComparesEnumsByValueAndAcceptsWholeNumbersWrittenWithAFraction() {
+		List<FieldError> errors = SchemaValidator.Validate(Schema, Parse("""{ "Url": "https://e.org", "Level": 1, "Accent": "é", "Minutes": 5.0 }"""));
+
+		Assert.IsEmpty(errors, string.Join("; ", errors));
+	}
 
 	[TestMethod]
 	[DynamicData(nameof(Invalid))]

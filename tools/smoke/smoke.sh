@@ -171,6 +171,10 @@ code=$(save_global "$password" "{\"Value\":{\"ServerUrl\":\"https://new.example.
 grep -q '"Path":"DelayMinutes"' "$work/save.json" || fail "the 400 does not name the field: $(cat "$work/save.json")"
 echo "OK: 400 names the invalid field"
 
+code=$(save_global "$password" "{\"Version\":\"${version}\"}")
+[ "$code" = 400 ] || fail "a body without Value answered $code, expected 400: $(cat "$work/save.json")"
+echo "OK: 400 when the body has no Value"
+
 code=$(save_global "$password" '{"Value":{"ServerUrl":"https://new.example.org"},"Version":"0000"}')
 [ "$code" = 409 ] || fail "a stale version answered $code, expected 409: $(cat "$work/save.json")"
 echo "OK: 409 on a stale version"

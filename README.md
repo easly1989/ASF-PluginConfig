@@ -12,7 +12,9 @@ builds the form from it and writes the plugin's own key in `ASF.json` or `config
 1. Download `ASFPluginConfig.zip` from the [latest release](https://github.com/easly1989/ASF-PluginConfig/releases/latest).
 2. Unzip it into ASF's `plugins/ASFPluginConfig/` folder.
 3. Restart ASF.
-4. Open `http://<asf-host>:1242/plugin-config/` and enter ASF's IPC password when asked.
+4. Open `http://<asf-host>:1242/plugin-config/` (with the trailing slash) and enter ASF's IPC password when asked.
+   ASF bans an address for an hour after 5 wrong passwords; the page stores the password for the browser tab only
+   after ASF accepts it.
 
 Requires ASF 6.3.10.6 or later, with IPC enabled.
 

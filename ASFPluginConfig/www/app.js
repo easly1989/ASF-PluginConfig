@@ -4,18 +4,33 @@
 const passwordKey = "asf-plugin-config.ipc-password";
 const status = document.getElementById("status");
 const login = document.getElementById("login");
+const passwordInput = document.getElementById("password");
 
-function storedPassword() {
+function storage(action) {
 	try {
-		return sessionStorage.getItem(passwordKey) || "";
+		return action(sessionStorage);
 	} catch {
-		return "";
+		// Private mode or blocked storage: the password lives only for this page load
+		return null;
 	}
 }
 
-async function api(path) {
+function show(message) {
+	// Clearing first makes the live region announce a message equal to the previous one
+	status.textContent = "";
+	requestAnimationFrame(() => {
+		status.textContent = message;
+	});
+}
+
+function askForPassword(message) {
+	login.hidden = false;
+	show(message);
+	passwordInput.focus();
+}
+
+async function api(path, password) {
 	const headers = {};
-	const password = storedPassword();
 
 	if (password) {
 		headers.Authentication = password;
@@ -24,39 +39,48 @@ async function api(path) {
 	return fetch(`../Api/${path}`, { headers });
 }
 
-async function load() {
-	const response = await api("PluginConfig");
+// ASF bans an IP for an hour after 5 wrong passwords, so a password is stored only once ASF accepted it
+async function load(typed) {
+	const password = typed ?? storage(s => s.getItem(passwordKey));
+	const response = await api("PluginConfig", password);
 
-	if (response.status === 401 || response.status === 403) {
-		login.hidden = false;
-		status.textContent = "Enter ASF's IPC password.";
+	if (response.status === 401) {
+		storage(s => s.removeItem(passwordKey));
+		askForPassword(password ? "Wrong IPC password." : "Enter ASF's IPC password.");
+
+		return;
+	}
+
+	if (response.status === 403) {
+		storage(s => s.removeItem(passwordKey));
+		login.hidden = true;
+		show("Access denied by ASF: too many wrong passwords from this address (retry in an hour), or ASF has no IPC password and you are not on localhost.");
 
 		return;
 	}
 
 	if (!response.ok) {
-		status.textContent = `ASF answered ${response.status}.`;
+		show(`ASF answered ${response.status}.`);
 
 		return;
 	}
 
+	if (password) {
+		storage(s => s.setItem(passwordKey, password));
+	}
+
 	const { Result } = await response.json();
 	login.hidden = true;
-	status.textContent = `${Result.Name} ${Result.Version}`;
+	show(`${Result.Name} ${Result.Version}`);
+}
+
+function reportError(error) {
+	show(`Cannot reach ASF: ${error.message}`);
 }
 
 login.addEventListener("submit", event => {
 	event.preventDefault();
-
-	try {
-		sessionStorage.setItem(passwordKey, document.getElementById("password").value);
-	} catch {
-		// Private mode: the password lives only for this page load
-	}
-
-	load();
+	load(passwordInput.value).catch(reportError);
 });
 
-load().catch(error => {
-	status.textContent = `Cannot reach ASF: ${error.message}`;
-});
+load().catch(reportError);

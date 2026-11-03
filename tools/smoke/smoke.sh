@@ -92,6 +92,11 @@ case "$page" in
 	*) fail "/plugin-config/ did not return the plugin's page" ;;
 esac
 
+# The page is blank without its script and style, so a zip missing them must fail here
+curl -fsS --max-time 20 "${ipc}/plugin-config/app.js" | grep -q 'asf-plugin-config.ipc-password' || fail "app.js is not served"
+curl -fsS --max-time 20 "${ipc}/plugin-config/app.css" | grep -q -- '--accent' || fail "app.css is not served"
+echo "OK: app.js and app.css served"
+
 status=$(curl -sS --max-time 20 -o /dev/null -w '%{http_code}' "${ipc}/Api/PluginConfig") || fail "the controller does not answer"
 [ "$status" = 401 ] || fail "without the password the controller answered $status, expected 401"
 echo "OK: 401 without the password"

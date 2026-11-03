@@ -16,7 +16,9 @@ const SchemaForm = (() => {
 		return `${schema.title || name}${required ? " (required)" : ""}`;
 	}
 
-	function field(name, schema, value, path, required) {
+	function field(name, schema, storedValue, path, required) {
+		// A stored null means unset, as for a missing key
+		const value = storedValue ?? undefined;
 		const id = `field-${++counter}`;
 		const wrapper = element("div", { className: "field" });
 		const describedBy = [];
@@ -31,27 +33,32 @@ const SchemaForm = (() => {
 		error.dataset.errorFor = path;
 		describedBy.push(error.id);
 		let input;
+		// A boolean without a default may be meant to stay unset (a per-bot value inheriting the global one), so it gets
+		// a three-way choice instead of a checkbox that would always write true or false
+		const choices = schema.enum ?? (schema.type === "boolean" && schema.default === undefined ? [true, false] : null);
 
-		if (schema.type === "boolean") {
+		if (schema.type === "boolean" && !choices) {
 			input = element("input", { type: "checkbox", id, checked: value ?? schema.default ?? false });
 			wrapper.classList.add("checkbox");
 			wrapper.append(input, element("label", { htmlFor: id, textContent: label(name, schema, false) }));
 		} else {
 			wrapper.append(element("label", { htmlFor: id, textContent: label(name, schema, required) }));
 
-			if (schema.enum) {
+			if (choices) {
 				input = element("select", { id, required });
 
 				if (!required) {
 					input.append(element("option", { value: "", textContent: schema.default !== undefined ? `Default (${schema.default})` : "Not set" }));
+				} else if (value === undefined && schema.default === undefined) {
+					input.append(element("option", { value: "", textContent: "Choose…", disabled: true }));
 				}
 
-				for (const option of schema.enum) {
-					input.append(element("option", { value: JSON.stringify(option), textContent: String(option) }));
+				for (const option of choices) {
+					input.append(element("option", { value: JSON.stringify(option), textContent: option === true ? "Yes" : option === false ? "No" : String(option) }));
 				}
 
 				// A stored value the schema no longer allows stays visible instead of being dropped on the next save
-				if (value !== undefined && !schema.enum.some(option => JSON.stringify(option) === JSON.stringify(value))) {
+				if (value !== undefined && !choices.some(option => JSON.stringify(option) === JSON.stringify(value))) {
 					input.append(element("option", { value: JSON.stringify(value), textContent: `${String(value)} (current, not allowed)` }));
 				}
 
@@ -161,9 +168,9 @@ const SchemaForm = (() => {
 				continue;
 			}
 
-			if (child.type === "boolean") {
+			if (input.type === "checkbox") {
 				value[name] = input.checked;
-			} else if (child.enum) {
+			} else if (input.tagName === "SELECT") {
 				if (input.value !== "") {
 					value[name] = JSON.parse(input.value);
 				}

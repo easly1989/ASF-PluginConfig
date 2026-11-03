@@ -3,7 +3,8 @@
 # starts ASF with IPC on localhost, and checks
 # - with an IPCPassword: the page and its assets are served; the controller answers 401 without the password and 200
 #   with it; the demo plugin's embedded schema is discovered; a global save is validated (400), version-checked (409),
-#   written into ASF.json without touching other keys, and makes ASF exit to apply it (AutoRestart is off);
+#   written into ASF.json without touching other keys, and makes ASF exit to apply it (AutoRestart is off); a bot save
+#   writes that bot's file and ASF keeps running; unknown or path-like bot names get 404;
 # - without an IPCPassword: a save is refused with 403;
 # - ASF logged no error or exception in either run.
 #
@@ -108,6 +109,13 @@ cat > "$work/config/ASF.json" <<EOF
 }
 EOF
 
+cat > "$work/config/smoke.json" <<EOF
+{
+	"Enabled": false,
+	"DemoNotifier": { "Enabled": true, "Unknown": 1 }
+}
+EOF
+
 cat > "$work/config/IPC.config" <<EOF
 {
 	"Kestrel": {
@@ -157,6 +165,35 @@ case "$plugins" in
 	*) fail "the plugin list lacks the demo plugin's schema: $plugins" ;;
 esac
 grep -Eq '1 config schema\(s\) found' "$work/asf1.out" || fail "the plugin did not log one discovered schema"
+
+bots=$(curl -fsS --max-time 20 -H "Authentication: ${password}" "${ipc}/Api/PluginConfig/Bots") || fail "the bot list failed"
+case "$bots" in
+	*'"Result":["smoke"]'*) echo "OK: bot list" ;;
+	*) fail "unexpected bot list: $bots" ;;
+esac
+
+for bot in missing ASF ..%2FASF ..%5CASF; do
+	code=$(curl -sS --max-time 20 -o /dev/null -w '%{http_code}' -H "Authentication: ${password}" "${ipc}/Api/PluginConfig/Plugins/DemoNotifier/Bots/${bot}")
+	[ "$code" = 404 ] || fail "bot ${bot} answered $code, expected 404"
+done
+echo "OK: 404 for unknown and path-like bot names"
+
+bot_version=$(curl -fsS --max-time 20 -H "Authentication: ${password}" "${ipc}/Api/PluginConfig/Plugins/DemoNotifier/Bots/smoke" | sed -n 's/.*"Version":"\([0-9A-F]*\)".*/\1/p')
+[ -n "$bot_version" ] || fail "no version for the bot value"
+code=$(curl -sS --max-time 20 -o "$work/save.json" -w '%{http_code}' -X POST -H "Authentication: ${password}" -H 'Content-Type: application/json' -d "{\"Value\":{\"Enabled\":false,\"Events\":{\"FarmingFinished\":true}},\"Version\":\"${bot_version}\"}" "${ipc}/Api/PluginConfig/Plugins/DemoNotifier/Bots/smoke")
+[ "$code" = 200 ] || fail "a valid bot save answered $code: $(cat "$work/save.json")"
+"$python" - "$work/config/smoke.json" <<'PY' || fail "smoke.json is not what the bot save should have written"
+import json, sys
+config = json.load(open(sys.argv[1], encoding="utf-8"))
+# ASF migrates the file at start-up and drops keys left at their default, such as "Enabled": false
+assert config.get("Enabled", False) is False, config
+assert config["DemoNotifier"] == {"Enabled": False, "Events": {"FarmingFinished": True}, "Unknown": 1}, config
+print("OK: the bot save wrote smoke.json; ASF's bot keys and the unknown key are untouched")
+PY
+sleep 3
+kill -0 "$asf_pid" 2>/dev/null || fail "ASF exited after a bot save"
+curl -fsS --max-time 20 -H "Authentication: ${password}" "${ipc}/Api/PluginConfig" > /dev/null || fail "IPC stopped answering after a bot save"
+echo "OK: ASF keeps running after a bot save"
 
 stored=$(curl -fsS --max-time 20 -H "Authentication: ${password}" "${ipc}/Api/PluginConfig/Plugins/DemoNotifier/Global") || fail "reading the global value failed"
 version=$(printf '%s' "$stored" | sed -n 's/.*"Version":"\([0-9A-F]*\)".*/\1/p')

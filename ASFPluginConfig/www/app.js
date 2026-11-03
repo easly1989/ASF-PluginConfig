@@ -80,12 +80,20 @@ async function api(path) {
 
 // Loads one stored value into a form inside container; saving posts it back with the version it was read at
 async function loadForm(container, path, schema, notes, message = "") {
+	// A newer load into the same container (another bot picked) wins; an older one that answers late is dropped
+	const ticket = container.loadTicket = (container.loadTicket ?? 0) + 1;
+	const current = () => container.loadTicket === ticket;
 	const loading = document.createElement("p");
+	loading.setAttribute("role", "status");
 	loading.textContent = "Loading…";
 	container.replaceChildren(loading);
 	const stored = await api(path).catch(error => {
 		loading.textContent = `Cannot reach ASF: ${error.message}`;
 	});
+
+	if (!current()) {
+		return;
+	}
 
 	if (!stored) {
 		loading.textContent ||= "Cannot load the settings.";
@@ -140,6 +148,9 @@ async function loadForm(container, path, schema, notes, message = "") {
 				const unplaced = SchemaForm.showErrors(form, answer.Result);
 				const count = answer.Result.length;
 				announce(result, [`${answer.Message}: ${count} field${count === 1 ? "" : "s"} to fix.`, ...unplaced].join(" "));
+			} else if (!current()) {
+				// The form was replaced while saving; say where the answer went instead of dropping it
+				show(code >= 200 && code < 300 && answer?.Success ? notes.after : `Not saved: ${answer?.Message || `ASF answered ${code}.`}`);
 			} else if (code === 409) {
 				// The file changed elsewhere: show what it holds now, so the next save starts from it
 				await loadForm(container, path, schema, notes, `${answer?.Message ?? "The file changed."} The form now shows its current content; your edits were not saved.`);
@@ -198,6 +209,51 @@ function globalEditor(plugin) {
 	return section("Global settings", plugin, body => loadForm(body, `${pluginPath(plugin)}/Global`, plugin.Global, notes));
 }
 
+function botEditor(plugin) {
+	return section("Bot settings", plugin, async body => {
+		const bots = await api("PluginConfig/Bots");
+
+		if (!bots) {
+			body.textContent = "Cannot load the bots.";
+
+			return;
+		}
+
+		if (bots.length === 0) {
+			body.textContent = "ASF has no bot config files.";
+
+			return;
+		}
+
+		const id = `bot-${plugin.ConfigKey}`;
+		const label = document.createElement("label");
+		label.htmlFor = id;
+		label.textContent = `Bot for ${plugin.Title}`;
+		const picker = document.createElement("select");
+		picker.id = id;
+
+		for (const bot of bots) {
+			picker.append(new Option(bot, bot));
+		}
+
+		const formHost = document.createElement("div");
+
+		const picked = () => {
+			const bot = picker.value;
+			const notes = { before: `Saving writes config/${bot}.json, and ASF restarts that bot to apply it.`, after: `Saved to config/${bot}.json. ASF is restarting ${bot} to apply it.` };
+
+			return loadForm(formHost, `${pluginPath(plugin)}/Bots/${encodeURIComponent(bot)}`, plugin.Bot, notes);
+		};
+
+		picker.addEventListener("change", () => picked().catch(reportError));
+		const field = document.createElement("div");
+		field.className = "field";
+		field.append(label, picker);
+		body.replaceChildren(field, formHost);
+		await picked();
+	});
+}
+
 function renderPlugins(plugins) {
 	pluginList.replaceChildren();
 
@@ -227,6 +283,10 @@ function renderPlugins(plugins) {
 
 		if (plugin.Global) {
 			card.append(globalEditor(plugin));
+		}
+
+		if (plugin.Bot) {
+			card.append(botEditor(plugin));
 		}
 
 		const item = document.createElement("li");

@@ -4,9 +4,12 @@
 # - with an IPCPassword: the page and its assets are served; the controller answers 401 without the password and 200
 #   with it; the demo plugin's embedded schema is discovered; a global save is validated (400), version-checked (409),
 #   written into ASF.json without touching other keys, and makes ASF exit to apply it (AutoRestart is off); a bot save
-#   writes that bot's file and ASF keeps running; unknown or path-like bot names get 404;
+#   writes that bot's file and ASF keeps running; unknown or path-like bot names get 404; the stored secret is never
+#   returned, only named as set, and a save that omits it keeps it in ASF.json;
 # - without an IPCPassword: a save is refused with 403;
-# - ASF logged no error or exception in either run.
+# - without an IPCPassword but with AllowWritesWithoutIPCPassword on: ASF logs the warning, the host reports it, and a
+#   save that clears the secret is written;
+# - ASF logged no error or exception in any run.
 #
 # Usage: tools/smoke/smoke.sh <unzipped-asf-release-dir> <published-plugin-dir> <published-demo-plugin-dir>
 # Env: IPC_PORT (default 12422), PYTHON (default python3)
@@ -24,6 +27,7 @@ ipc_port=${IPC_PORT:-12422}
 ipc="http://127.0.0.1:${ipc_port}"
 python=${PYTHON:-python3}
 password=smoke-FAKE-ipc-password
+token=smoke-FAKE-access-token
 work=$(mktemp -d)
 asf_pid=
 
@@ -105,7 +109,7 @@ cat > "$work/config/ASF.json" <<EOF
 	"IPCPassword": "${password}",
 	"UpdateChannel": 0,
 	"UpdatePeriod": 0,
-	"DemoNotifier": { "ServerUrl": "https://old.example.org", "Legacy": "kept" }
+	"DemoNotifier": { "ServerUrl": "https://old.example.org", "AccessToken": "${token}", "Legacy": "kept" }
 }
 EOF
 
@@ -164,7 +168,11 @@ case "$plugins" in
 	*'"ConfigKey":"DemoNotifier"'*'"writeOnly":true'*) echo "OK: the demo plugin's schema is discovered and served" ;;
 	*) fail "the plugin list lacks the demo plugin's schema: $plugins" ;;
 esac
-grep -Eq '1 config schema\(s\) found' "$work/asf1.out" || fail "the plugin did not log one discovered schema"
+case "$plugins" in
+	*'"ConfigKey":"ASFPluginConfig"'*) echo "OK: the host's own schema is listed" ;;
+	*) fail "the plugin list lacks the host's own schema: $plugins" ;;
+esac
+grep -Eq '2 config schema\(s\) found' "$work/asf1.out" || fail "the plugin did not log two discovered schemas (its own and the demo's)"
 
 bots=$(curl -fsS --max-time 20 -H "Authentication: ${password}" "${ipc}/Api/PluginConfig/Bots") || fail "the bot list failed"
 case "$bots" in
@@ -202,6 +210,11 @@ case "$stored" in
 	*'"ServerUrl":"https://old.example.org"'*) echo "OK: global value read" ;;
 	*) fail "unexpected global value: $stored" ;;
 esac
+case "$stored" in
+	*"$token"*) fail "the stored secret was returned: $stored" ;;
+	*'"SetSecrets":["AccessToken"]'*) echo "OK: the secret is masked and named as set" ;;
+	*) fail "the reply does not name the stored secret as set: $stored" ;;
+esac
 
 code=$(save_global "$password" "{\"Value\":{\"ServerUrl\":\"https://new.example.org\",\"DelayMinutes\":0},\"Version\":\"${version}\"}")
 [ "$code" = 400 ] || fail "an out-of-range value answered $code, expected 400: $(cat "$work/save.json")"
@@ -214,6 +227,7 @@ echo "OK: 400 when the body has no Value"
 
 code=$(save_global "$password" '{"Value":{"ServerUrl":"https://new.example.org"},"Version":"0000"}')
 [ "$code" = 409 ] || fail "a stale version answered $code, expected 409: $(cat "$work/save.json")"
+grep -q -- "$token" "$work/save.json" && fail "a 409 returned the stored secret"
 echo "OK: 409 on a stale version"
 
 code=$(save_global "$password" "{\"Value\":{\"ServerUrl\":\"https://new.example.org\",\"DelayMinutes\":10,\"Events\":{\"BotStopped\":false}},\"Version\":\"${version}\"}")
@@ -224,13 +238,13 @@ wait_exit 30
 grep -q 'pluginconfig.tmp' <(ls "$work/config") && fail "a temp file was left in config/"
 echo "OK: ASF exited to apply the change"
 
-"$python" - "$work/config/ASF.json" "$password" <<'EOF' || fail "ASF.json is not what the save should have written"
+"$python" - "$work/config/ASF.json" "$password" "$token" <<'EOF' || fail "ASF.json is not what the save should have written"
 import json, sys
 config = json.load(open(sys.argv[1], encoding="utf-8"))
 assert config["IPCPassword"] == sys.argv[2] and config["AutoRestart"] is False and config["UpdatePeriod"] == 0, config
 demo = config["DemoNotifier"]
-assert demo == {"ServerUrl": "https://new.example.org", "DelayMinutes": 10, "Events": {"BotStopped": False}, "Legacy": "kept"}, demo
-print("OK: ASF.json has the new value; ASF's keys and the unknown key are untouched")
+assert demo == {"ServerUrl": "https://new.example.org", "DelayMinutes": 10, "Events": {"BotStopped": False}, "AccessToken": sys.argv[3], "Legacy": "kept"}, demo
+print("OK: ASF.json has the new value and keeps the omitted secret; ASF's keys and the unknown key are untouched")
 EOF
 
 # Second run without IPCPassword: IPC lets localhost in, the host still refuses to write
@@ -250,6 +264,32 @@ echo "OK: 403 on a save while IPCPassword is empty"
 
 curl -fsS --max-time 20 -X POST "${ipc}/Api/ASF/Exit" > /dev/null || fail "IPC exit failed"
 wait_exit 30
+
+# Third run, still without IPCPassword but with the opt-in on: writes are allowed and the risk is logged and reported
+"$python" - "$work/config/ASF.json" <<'EOF'
+import json, sys
+config = json.load(open(sys.argv[1], encoding="utf-8"))
+config["ASFPluginConfig"] = {"AllowWritesWithoutIPCPassword": True}
+json.dump(config, open(sys.argv[1], "w", encoding="utf-8"), indent=2)
+EOF
+
+start_asf asf3.out ""
+grep -q 'AllowWritesWithoutIPCPassword is on and IPCPassword is empty' "$work/asf3.out" || fail "ASF did not log the opt-in warning"
+echo "OK: the opt-in warning is logged at start-up"
+curl -fsS --max-time 20 "${ipc}/Api/PluginConfig" | grep -q '"WritesWithoutPassword":true' || fail "the host does not report writes without a password"
+echo "OK: the host reports writes without a password"
+version=$(curl -fsS --max-time 20 "${ipc}/Api/PluginConfig/Plugins/DemoNotifier/Global" | sed -n 's/.*"Version":"\([0-9A-F]*\)".*/\1/p')
+code=$(save_global "" "{\"Value\":{\"ServerUrl\":\"https://optin.example.org\"},\"Version\":\"${version}\",\"ClearSecrets\":[\"AccessToken\"]}")
+[ "$code" = 200 ] || fail "a save with the opt-in on answered $code: $(cat "$work/save.json")"
+echo "OK: 200 on a save with the opt-in on"
+wait_exit 30
+
+"$python" - "$work/config/ASF.json" <<'EOF' || fail "ASF.json is not what the opt-in save should have written"
+import json, sys
+demo = json.load(open(sys.argv[1], encoding="utf-8"))["DemoNotifier"]
+assert demo == {"ServerUrl": "https://optin.example.org", "Legacy": "kept"}, demo
+print("OK: the cleared secret is gone from ASF.json")
+EOF
 
 # ASF's log lines read date|process|LEVEL|logger|message
 if grep -E '\|(ERROR|FATAL)\||Exception' "$work"/asf*.out; then

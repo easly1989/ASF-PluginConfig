@@ -42,7 +42,7 @@ public sealed class PluginConfigController : ArchiController {
 		ArgumentException.ThrowIfNullOrEmpty(configKey);
 
 		return ASFPluginConfig.Catalog.Find(configKey) is { Global: not null } schema
-			? Read(GlobalConfigPath, schema.ConfigKey)
+			? Read(GlobalConfigPath, schema.ConfigKey, schema.Global.Value)
 			: StatusCode((int) HttpStatusCode.NotFound, new GenericResponse(false, $"No plugin has global settings under {configKey}"));
 	}
 
@@ -75,7 +75,7 @@ public sealed class PluginConfigController : ArchiController {
 		}
 
 		return BotFiles.PathOf(ConfigDirectory, bot) is { } path
-			? Read(path, schema.ConfigKey)
+			? Read(path, schema.ConfigKey, schema.Bot.Value)
 			: StatusCode((int) HttpStatusCode.NotFound, new GenericResponse(false, $"No bot config named {bot}"));
 	}
 
@@ -100,26 +100,35 @@ public sealed class PluginConfigController : ArchiController {
 			: StatusCode((int) HttpStatusCode.NotFound, new GenericResponse(false, $"No bot config named {bot}"));
 	}
 
-	private ActionResult<GenericResponse> Read(string path, string configKey) {
+	private ActionResult<GenericResponse> Read(string path, string configKey, JsonElement schema) {
 		ConfigFile.Snapshot snapshot = ConfigFile.Read(path, configKey);
+		(JsonElement? masked, List<string> setSecrets) = Secrets.Mask(schema, snapshot.Value);
 
 		return snapshot.Outcome switch {
-			ConfigFile.Outcome.Written => Ok(new GenericResponse<ConfigValue>(new ConfigValue(snapshot.Value, snapshot.Version!))),
+			ConfigFile.Outcome.Written => Ok(new GenericResponse<ConfigValue>(new ConfigValue(masked, snapshot.Version!, setSecrets))),
 			ConfigFile.Outcome.Missing => StatusCode((int) HttpStatusCode.NotFound, new GenericResponse(false, $"{Path.GetFileName(path)} does not exist")),
 			_ => StatusCode((int) HttpStatusCode.InternalServerError, new GenericResponse(false, $"{Path.GetFileName(path)} cannot be read ({snapshot.Outcome})"))
 		};
 	}
 
 	private ActionResult<GenericResponse> Save(string path, string configKey, JsonElement schema, ConfigWriteRequest request) {
-		// An open IPC must not be able to rewrite config files
-		if (string.IsNullOrEmpty(ASF.GlobalConfig?.IPCPassword)) {
-			return StatusCode((int) HttpStatusCode.Forbidden, new GenericResponse(false, "Saving needs IPCPassword set in ASF.json"));
+		// An open IPC must not be able to rewrite config files, unless the owner opted in to leave that to the network
+		if (!HostSettings.WritesAllowed) {
+			return StatusCode((int) HttpStatusCode.Forbidden, new GenericResponse(false, $"Saving needs IPCPassword set in ASF.json, or {HostSettings.OptInName} turned on"));
 		}
 
-		JsonElement? value = request.Value is { ValueKind: not JsonValueKind.Null } given ? given : null;
+		JsonElement? value = null;
 
-		if (value is { } submitted) {
-			List<FieldError> errors = SchemaValidator.Validate(schema, submitted);
+		if (request.Value is { ValueKind: not JsonValueKind.Null } submitted) {
+			// Secrets the page never saw are kept from the stored value; that needs the stored value the page was shown
+			ConfigFile.Snapshot snapshot = ConfigFile.Read(path, configKey);
+
+			if (snapshot.Outcome == ConfigFile.Outcome.Written && snapshot.Version != request.Version) {
+				return StatusCode((int) HttpStatusCode.Conflict, new GenericResponse(false, $"{Path.GetFileName(path)} changed since you loaded it; reload and try again"));
+			}
+
+			value = Secrets.Merge(schema, snapshot.Value, submitted, request.ClearSecrets ?? []);
+			List<FieldError> errors = SchemaValidator.Validate(schema, value.Value);
 
 			if (errors.Count > 0) {
 				return BadRequest(new GenericResponse<IReadOnlyList<FieldError>>(false, "Some settings are invalid", errors));

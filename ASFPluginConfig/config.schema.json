@@ -1,0 +1,16 @@
+{
+	"configKey": "ASFPluginConfig",
+	"title": "Plugin config (this page)",
+	"description": "Settings of the plugin that serves this page.",
+	"global": {
+		"type": "object",
+		"properties": {
+			"AllowWritesWithoutIPCPassword": {
+				"type": "boolean",
+				"default": false,
+				"title": "Allow saving without IPCPassword",
+				"description": "Off by default: saving needs IPCPassword in ASF.json. Turn it on only when ASF's IPC is reachable from a trusted network alone (LAN or VPN), because then anyone who can reach it can change your plugins' settings. Secrets stay hidden either way."
+			}
+		}
+	}
+}

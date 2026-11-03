@@ -77,6 +77,7 @@ internal sealed class PluginSchemaTests {
 		("""{ "configKey": "Demo", "global": { "type": "object", "properties": { "A": { "type": "string" }, "A": { "type": "integer" } } } }""", "duplicate property name"),
 		("""{ "configKey": "Headless", "global": { "type": "object" } }""", "ASF's own settings"),
 		("""{ "configKey": "steamlogin", "bot": { "type": "object" } }""", "ASF's own settings"),
+		("""{ "configKey": "s_SteamOwnerID", "global": { "type": "object" } }""", "ASF's own settings"),
 		("""{ "configKey": " Demo ", "global": { "type": "object" } }""", "surrounding spaces"),
 		("""{ "configKey": "Demo", "global": { "type": "object", "properties": { "A": { "type": "integer", "default": "abc" } } } }""", "default must be integer"),
 		("""{ "configKey": "Demo", "global": { "type": "object", "properties": { "A": { "type": "integer", "default": 1.5 } } } }""", "default must be integer"),

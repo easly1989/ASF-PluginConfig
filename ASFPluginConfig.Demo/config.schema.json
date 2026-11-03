@@ -1,0 +1,40 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"configKey": "DemoNotifier",
+	"title": "Demo Notifier",
+	"description": "A demo plugin that only exists to exercise ASFPluginConfig. It does nothing with its settings.",
+	"global": {
+		"type": "object",
+		"required": ["ServerUrl"],
+		"properties": {
+			"Enabled": { "type": "boolean", "title": "Enabled", "description": "Turns every notification on or off.", "default": true },
+			"ServerUrl": { "type": "string", "format": "uri", "title": "Server URL", "description": "Base URL of the notification server." },
+			"AccessToken": { "type": "string", "writeOnly": true, "title": "Access token", "description": "Never shown back once saved." },
+			"DelayMinutes": { "type": "integer", "minimum": 1, "maximum": 1440, "default": 5, "title": "Delay (minutes)", "description": "How long a bot may stay disconnected before a notification." },
+			"Level": { "type": "string", "enum": ["Info", "Warning", "Error"], "default": "Warning", "title": "Minimum level" },
+			"Tags": { "type": "array", "items": { "type": "string" }, "title": "Tags", "description": "Added to every message." },
+			"Events": {
+				"type": "object",
+				"title": "Events",
+				"properties": {
+					"BotStopped": { "type": "boolean", "title": "Bot stopped", "default": true },
+					"FarmingFinished": { "type": "boolean", "title": "Farming finished", "default": false }
+				}
+			}
+		}
+	},
+	"bot": {
+		"type": "object",
+		"properties": {
+			"Enabled": { "type": "boolean", "title": "Enabled for this bot", "default": true },
+			"Events": {
+				"type": "object",
+				"title": "Events",
+				"properties": {
+					"BotStopped": { "type": "boolean", "title": "Bot stopped" },
+					"FarmingFinished": { "type": "boolean", "title": "Farming finished" }
+				}
+			}
+		}
+	}
+}

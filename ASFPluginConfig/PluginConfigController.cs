@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Net;
 using ArchiSteamFarm.IPC.Controllers.Api;
 using ArchiSteamFarm.IPC.Responses;
@@ -13,4 +14,9 @@ public sealed class PluginConfigController : ArchiController {
 	[HttpGet]
 	[ProducesResponseType<GenericResponse<HostInfo>>((int) HttpStatusCode.OK)]
 	public ActionResult<GenericResponse<HostInfo>> HostGet() => Ok(new GenericResponse<HostInfo>(HostInfo.Current));
+
+	[EndpointSummary("Gets every plugin that embeds a valid config schema")]
+	[HttpGet("Plugins")]
+	[ProducesResponseType<GenericResponse<IReadOnlyCollection<PluginSchema>>>((int) HttpStatusCode.OK)]
+	public ActionResult<GenericResponse<IReadOnlyCollection<PluginSchema>>> PluginsGet() => Ok(new GenericResponse<IReadOnlyCollection<PluginSchema>>(ASFPluginConfig.Catalog.Schemas));
 }

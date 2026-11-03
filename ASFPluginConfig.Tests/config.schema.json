@@ -1,0 +1,10 @@
+{
+	"configKey": "TestFixture",
+	"title": "Test fixture",
+	"global": {
+		"type": "object",
+		"properties": {
+			"Enabled": { "type": "boolean", "default": true }
+		}
+	}
+}

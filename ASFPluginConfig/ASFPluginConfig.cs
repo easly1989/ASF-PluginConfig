@@ -12,6 +12,9 @@ namespace ASFPluginConfig;
 internal sealed class ASFPluginConfig : IGitHubPluginUpdates, IWebInterface {
 	internal const string PageWebPath = "/plugin-config";
 
+	// Set once in OnLoaded, read by the controller on request threads
+	internal static SchemaCatalog Catalog { get; private set; } = SchemaCatalog.Empty;
+
 	public string Name => nameof(ASFPluginConfig);
 	public string PhysicalPath => "www";
 	public string RepositoryName => "easly1989/ASF-PluginConfig";
@@ -19,7 +22,10 @@ internal sealed class ASFPluginConfig : IGitHubPluginUpdates, IWebInterface {
 	public string WebPath => PageWebPath;
 
 	public Task OnLoaded() {
-		ASF.ArchiLogger.LogGenericInfo($"{Name} {Version} loaded, page at {PageWebPath}/");
+		// ASF loads every plugin assembly before it calls OnLoaded, so the scan sees them all
+		Catalog = SchemaCatalog.Load(AppDomain.CurrentDomain.GetAssemblies(), static message => ASF.ArchiLogger.LogGenericError(message));
+
+		ASF.ArchiLogger.LogGenericInfo($"{Name} {Version} loaded, page at {PageWebPath}/, {Catalog.Schemas.Length} config schema(s) found");
 
 		return Task.CompletedTask;
 	}

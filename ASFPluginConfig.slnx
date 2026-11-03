@@ -10,4 +10,6 @@
 	<Project Path="ASFPluginConfig/ASFPluginConfig.csproj" />
 
 	<Project Path="ASFPluginConfig.Tests/ASFPluginConfig.Tests.csproj" />
+
+	<Project Path="ASFPluginConfig.Demo/ASFPluginConfig.Demo.csproj" />
 </Solution>

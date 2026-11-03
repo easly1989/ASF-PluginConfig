@@ -40,6 +40,10 @@ jobs:
       if: ${{ inputs.plugin-artifact == '' }}
       run: dotnet publish ASFPluginConfig -c Release -o out/plugin -p:ContinuousIntegrationBuild=true -p:TargetLatestRuntimePatch=false -p:UseAppHost=false --nologo
 
+    # The demo plugin only carries a schema for the smoke test; it is never shipped
+    - name: Publish demo plugin
+      run: dotnet publish ASFPluginConfig.Demo -c Release -o out/demo -p:ContinuousIntegrationBuild=true -p:TargetLatestRuntimePatch=false -p:UseAppHost=false --nologo
+
     - name: Download plugin artifact
       if: ${{ inputs.plugin-artifact != '' }}
       uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
@@ -91,4 +95,4 @@ jobs:
         done
 
     - name: Smoke test in the trimmed linux-x64 build
-      run: bash tools/smoke/smoke.sh asf/linux-x64 out/plugin
+      run: bash tools/smoke/smoke.sh asf/linux-x64 out/plugin out/demo

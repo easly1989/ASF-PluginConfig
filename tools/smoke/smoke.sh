@@ -1,19 +1,21 @@
 #!/usr/bin/env bash
-# Smoke test against an official OS-specific ASF release, which is trimmed: installs the plugin, starts ASF with IPC
-# on localhost and an IPCPassword, and checks that the page is served, that the plugin's controller answers under /Api
-# (401 without the password, 200 with it, a plugin-defined response type serialized) and that ASF logged no error.
+# Smoke test against an official OS-specific ASF release, which is trimmed: installs the plugin and the demo plugin,
+# starts ASF with IPC on localhost and an IPCPassword, and checks that the page is served, that the plugin's controller
+# answers under /Api (401 without the password, 200 with it, plugin-defined response types serialized), that the demo
+# plugin's embedded schema is discovered, and that ASF logged no error.
 #
-# Usage: tools/smoke/smoke.sh <unzipped-asf-release-dir> <published-plugin-dir>
+# Usage: tools/smoke/smoke.sh <unzipped-asf-release-dir> <published-plugin-dir> <published-demo-plugin-dir>
 # Env: IPC_PORT (default 12422)
 set -euo pipefail
 
-if [ "$#" -ne 2 ]; then
-	echo "Usage: $0 <unzipped-asf-release-dir> <published-plugin-dir>" >&2
+if [ "$#" -ne 3 ]; then
+	echo "Usage: $0 <unzipped-asf-release-dir> <published-plugin-dir> <published-demo-plugin-dir>" >&2
 	exit 2
 fi
 
 asf_src=$1
 plugin_src=$2
+demo_src=$3
 ipc_port=${IPC_PORT:-12422}
 ipc="http://127.0.0.1:${ipc_port}"
 password=smoke-FAKE-ipc-password
@@ -44,8 +46,9 @@ exe="$work/ArchiSteamFarm"
 [ -f "$exe" ] || fail "no ArchiSteamFarm executable in $asf_src"
 chmod +x "$exe"
 
-mkdir -p "$work/config" "$work/plugins/ASFPluginConfig"
+mkdir -p "$work/config" "$work/plugins/ASFPluginConfig" "$work/plugins/ASFPluginConfigDemo"
 cp -R "$plugin_src"/. "$work/plugins/ASFPluginConfig/"
+cp -R "$demo_src"/. "$work/plugins/ASFPluginConfigDemo/"
 
 cat > "$work/config/ASF.json" <<EOF
 {
@@ -111,6 +114,13 @@ case "$reply" in
 	*'"Name":"ASFPluginConfig"'*) echo "OK: controller answered with the plugin's response type" ;;
 	*) fail "the reply lacks the plugin's response type" ;;
 esac
+
+plugins=$(curl -fsS --max-time 20 -H "Authentication: ${password}" "${ipc}/Api/PluginConfig/Plugins") || fail "the plugin list failed"
+case "$plugins" in
+	*'"ConfigKey":"DemoNotifier"'*'"writeOnly":true'*) echo "OK: the demo plugin's schema is discovered and served" ;;
+	*) fail "the plugin list lacks the demo plugin's schema: $plugins" ;;
+esac
+grep -Eq '1 config schema\(s\) found' "$work/asf.out" || fail "the plugin did not log one discovered schema"
 
 curl -fsS --max-time 20 -X POST -H "Authentication: ${password}" "${ipc}/Api/ASF/Exit" > /dev/null || fail "IPC exit failed"
 

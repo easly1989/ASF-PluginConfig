@@ -24,14 +24,16 @@ Requires the .NET 10 SDK. Clone with submodules.
 - Package: `dotnet publish ASFPluginConfig -c Release -o out/plugin -p:UseAppHost=false`, zip the folder's contents.
 - Trimmed-ASF check (CI, and required by the release job): unzip an official OS-specific ASF release, then
   `dotnet run --project tools/TrimCheck -c Release -- <asf-dir> <published>/ASFPluginConfig.dll` and
-  `tools/smoke/smoke.sh <asf-dir> <published-dir>` (bash and `curl`; a win-x64 release works under Git Bash).
+  `tools/smoke/smoke.sh <asf-dir> <published-dir> <published-demo-dir>` (publish `ASFPluginConfig.Demo` for the last one) (bash and `curl`; a win-x64 release works under Git Bash).
 
 ## Conventions
 
 - Everything in the repo is English.
 - ASF code style: tabs, `.editorconfig` from the template. Warnings are errors in Release.
 - ASF's OS-specific builds are trimmed: use only what the trim check accepts. Plugin controllers and a plugin-defined
-  response type serialized by ASF's MVC were verified on trimmed 6.3.10.6 (ticket #2).
+  response type serialized by ASF's MVC were verified on trimmed 6.3.10.6 (ticket #2). `System.Text.Json` is trimmed
+  unevenly: `JsonNode.ToJsonString`, `JsonElement.TryGetProperty(string)` and `JsonProperty.NameEquals` are gone, while
+  `JsonNode.Parse`, its indexers and `JsonDocument.EnumerateObject` stay. Run TrimCheck after any JSON change.
 - Every endpoint lives under `/Api/PluginConfig/`, where ASF's `IPCPassword` middleware applies. The static page
   holds no data.
 - Never log, return or commit a secret. Values of `writeOnly` schema fields never leave the host. Fixtures use

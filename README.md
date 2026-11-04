@@ -5,7 +5,7 @@ configuration of other installed plugins. Each plugin that wants a form embeds a
 builds the form from it and writes the plugin's own key in `ASF.json` or `config/<bot>.json`.
 
 > Work in progress. The design is in [issue #1](https://github.com/easly1989/ASF-PluginConfig/issues/1); this
-> version edits global and per-bot settings, secrets included. A raw editor follows.
+> version edits global and per-bot settings, secrets included, and any other plugin's key as raw JSON.
 
 ## Install
 
@@ -29,6 +29,12 @@ Each plugin that ships a schema gets a card. Open **Global settings**, or **Bot 
 - **Updating plugins.** **Update plugins** at the bottom asks ASF to update the plugins its `PluginsUpdateMode` and `PluginsUpdateList` settings allow, and shows ASF's answer. ASF downloads and installs them itself, then restarts if anything changed (or stops, when `AutoRestart` is off); this plugin installs nothing. By default `PluginsUpdateList` is empty, so nothing updates until you add the plugins' assembly names to it, for example `ASFPluginConfig`.
 - **Secrets stay on the server.** A secret field (`writeOnly` in the schema) is never sent to the page, only whether it is set. Leave it empty to keep the stored value, type a new one to replace it, or tick **Remove the stored value**.
 - **Saving needs `IPCPassword`, unless you opt out.** Saving is refused while `IPCPassword` is empty in `ASF.json`. If ASF's IPC is reachable only from your LAN or a VPN, you can allow saving without it (see below).
+
+### Plugins without a schema
+
+The **Other plugins (raw JSON)** card edits one top-level key of `ASF.json` or of a bot's config file as JSON. Pick a key the file already has or type a new one, edit the value and save; `null` removes the key. Saves go through the same checks as the forms. ASF's own settings and the keys of plugins that ship a schema are refused there.
+
+Raw values are shown as stored, so a secret in a plugin's key is visible to anyone who can open the page. A plugin that wants its secrets hidden ships a schema and marks them `writeOnly`.
 
 ### Saving without `IPCPassword`
 

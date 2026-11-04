@@ -100,6 +100,101 @@ public sealed class PluginConfigController : ArchiController {
 			: StatusCode((int) HttpStatusCode.NotFound, new GenericResponse(false, $"No bot config named {bot}"));
 	}
 
+	[EndpointSummary("Gets the keys in ASF.json the raw editor may edit: neither ASF's own nor a plugin's with a schema")]
+	[HttpGet("Raw/Global")]
+	[ProducesResponseType<GenericResponse<IReadOnlyList<string>>>((int) HttpStatusCode.OK)]
+	public ActionResult<GenericResponse> RawGlobalKeysGet() => RawKeysOf(GlobalConfigPath);
+
+	[EndpointSummary("Gets one key's raw value from ASF.json, as stored, with the version a save must send back")]
+	[HttpGet("Raw/Global/{key:required}")]
+	[ProducesResponseType<GenericResponse<RawValue>>((int) HttpStatusCode.OK)]
+	[ProducesResponseType<GenericResponse>((int) HttpStatusCode.BadRequest)]
+	public ActionResult<GenericResponse> RawGlobalGet(string key) => RawRead(GlobalConfigPath, key);
+
+	[EndpointSummary("Saves one key's raw value into ASF.json (null removes the key); ASF restarts to apply it")]
+	[HttpPost("Raw/Global/{key:required}")]
+	[ProducesResponseType<GenericResponse<string>>((int) HttpStatusCode.OK)]
+	[ProducesResponseType<GenericResponse>((int) HttpStatusCode.BadRequest)]
+	[ProducesResponseType<GenericResponse>((int) HttpStatusCode.Forbidden)]
+	[ProducesResponseType<GenericResponse>((int) HttpStatusCode.Conflict)]
+	public ActionResult<GenericResponse> RawGlobalPost(string key, [FromBody] ConfigWriteRequest request) => RawSave(GlobalConfigPath, key, request);
+
+	[EndpointSummary("Gets the keys in a bot's config file the raw editor may edit")]
+	[HttpGet("Raw/Bots/{bot:required}")]
+	[ProducesResponseType<GenericResponse<IReadOnlyList<string>>>((int) HttpStatusCode.OK)]
+	[ProducesResponseType<GenericResponse>((int) HttpStatusCode.NotFound)]
+	public ActionResult<GenericResponse> RawBotKeysGet(string bot) => BotFiles.PathOf(ConfigDirectory, bot) is { } path ? RawKeysOf(path) : NoBot(bot);
+
+	[EndpointSummary("Gets one key's raw value from a bot's config file, as stored, with the version a save must send back")]
+	[HttpGet("Raw/Bots/{bot:required}/{key:required}")]
+	[ProducesResponseType<GenericResponse<RawValue>>((int) HttpStatusCode.OK)]
+	[ProducesResponseType<GenericResponse>((int) HttpStatusCode.BadRequest)]
+	[ProducesResponseType<GenericResponse>((int) HttpStatusCode.NotFound)]
+	public ActionResult<GenericResponse> RawBotGet(string bot, string key) => BotFiles.PathOf(ConfigDirectory, bot) is { } path ? RawRead(path, key) : NoBot(bot);
+
+	[EndpointSummary("Saves one key's raw value into a bot's config file (null removes the key); ASF restarts that bot")]
+	[HttpPost("Raw/Bots/{bot:required}/{key:required}")]
+	[ProducesResponseType<GenericResponse<string>>((int) HttpStatusCode.OK)]
+	[ProducesResponseType<GenericResponse>((int) HttpStatusCode.BadRequest)]
+	[ProducesResponseType<GenericResponse>((int) HttpStatusCode.Forbidden)]
+	[ProducesResponseType<GenericResponse>((int) HttpStatusCode.NotFound)]
+	[ProducesResponseType<GenericResponse>((int) HttpStatusCode.Conflict)]
+	public ActionResult<GenericResponse> RawBotPost(string bot, string key, [FromBody] ConfigWriteRequest request) {
+		ArgumentNullException.ThrowIfNull(request);
+
+		return BotFiles.PathOf(ConfigDirectory, bot) is { } path ? RawSave(path, key, request) : NoBot(bot);
+	}
+
+	private ObjectResult NoBot(string bot) => StatusCode((int) HttpStatusCode.NotFound, new GenericResponse(false, $"No bot config named {bot}"));
+
+	private ActionResult<GenericResponse> RawKeysOf(string path) => ConfigFile.Keys(path) is { } keys
+		? Ok(new GenericResponse<IReadOnlyList<string>>(RawKeys.Editable(keys, ASFPluginConfig.Catalog)))
+		: StatusCode((int) HttpStatusCode.InternalServerError, new GenericResponse(false, $"{Path.GetFileName(path)} cannot be read"));
+
+	// Values are shown as stored: a plugin that wants its secrets hidden ships a schema, and its key is refused here
+	private ActionResult<GenericResponse> RawRead(string path, string key) {
+		if (RawKeys.Refusal(key, ASFPluginConfig.Catalog) is { } refusal) {
+			return BadRequest(new GenericResponse(false, refusal));
+		}
+
+		ConfigFile.Snapshot snapshot = ConfigFile.Read(path, key);
+
+		return snapshot.Outcome switch {
+			ConfigFile.Outcome.Written => Ok(new GenericResponse<RawValue>(new RawValue(snapshot.Value is { } value ? JsonUtil.Indented(value) : null, snapshot.Version!))),
+			ConfigFile.Outcome.Missing => StatusCode((int) HttpStatusCode.NotFound, new GenericResponse(false, $"{Path.GetFileName(path)} does not exist")),
+			_ => StatusCode((int) HttpStatusCode.InternalServerError, new GenericResponse(false, $"{Path.GetFileName(path)} cannot be read ({snapshot.Outcome})"))
+		};
+	}
+
+	private ActionResult<GenericResponse> RawSave(string path, string key, ConfigWriteRequest request) {
+		ArgumentNullException.ThrowIfNull(request);
+
+		if (!HostSettings.WritesAllowed) {
+			return WritesRefused();
+		}
+
+		if (RawKeys.Refusal(key, ASFPluginConfig.Catalog) is { } refusal) {
+			return BadRequest(new GenericResponse(false, refusal));
+		}
+
+		(ConfigFile.Outcome outcome, string? version) = ConfigFile.Write(path, key, null, request.Value is { ValueKind: not JsonValueKind.Null } value ? value : null, request.Version);
+
+		return Answer(path, outcome, version);
+	}
+
+	private ObjectResult WritesRefused() => StatusCode((int) HttpStatusCode.Forbidden, new GenericResponse(false, $"Saving needs IPCPassword set in ASF.json, or {HostSettings.OptInName} turned on"));
+
+	private ActionResult<GenericResponse> Answer(string path, ConfigFile.Outcome outcome, string? version) {
+		string file = Path.GetFileName(path);
+
+		return outcome switch {
+			ConfigFile.Outcome.Written => Ok(new GenericResponse<string>(version)),
+			ConfigFile.Outcome.Missing => StatusCode((int) HttpStatusCode.NotFound, new GenericResponse(false, $"{file} does not exist")),
+			ConfigFile.Outcome.Stale => StatusCode((int) HttpStatusCode.Conflict, new GenericResponse(false, $"{file} changed since you loaded it; reload and try again")),
+			_ => StatusCode((int) HttpStatusCode.InternalServerError, new GenericResponse(false, $"{file} cannot be written ({outcome})"))
+		};
+	}
+
 	private ActionResult<GenericResponse> Read(string path, string configKey, JsonElement schema) {
 		ConfigFile.Snapshot snapshot = ConfigFile.Read(path, configKey);
 		(JsonElement? masked, List<string> setSecrets) = Secrets.Mask(schema, snapshot.Value);
@@ -114,7 +209,7 @@ public sealed class PluginConfigController : ArchiController {
 	private ActionResult<GenericResponse> Save(string path, string configKey, JsonElement schema, ConfigWriteRequest request) {
 		// An open IPC must not be able to rewrite config files, unless the owner opted in to leave that to the network
 		if (!HostSettings.WritesAllowed) {
-			return StatusCode((int) HttpStatusCode.Forbidden, new GenericResponse(false, $"Saving needs IPCPassword set in ASF.json, or {HostSettings.OptInName} turned on"));
+			return WritesRefused();
 		}
 
 		JsonElement? value = null;
@@ -136,13 +231,7 @@ public sealed class PluginConfigController : ArchiController {
 		}
 
 		(ConfigFile.Outcome outcome, string? version) = ConfigFile.Write(path, configKey, schema, value, request.Version);
-		string file = Path.GetFileName(path);
 
-		return outcome switch {
-			ConfigFile.Outcome.Written => Ok(new GenericResponse<string>(version)),
-			ConfigFile.Outcome.Missing => StatusCode((int) HttpStatusCode.NotFound, new GenericResponse(false, $"{file} does not exist")),
-			ConfigFile.Outcome.Stale => StatusCode((int) HttpStatusCode.Conflict, new GenericResponse(false, $"{file} changed since you loaded it; reload and try again")),
-			_ => StatusCode((int) HttpStatusCode.InternalServerError, new GenericResponse(false, $"{file} cannot be written ({outcome})"))
-		};
+		return Answer(path, outcome, version);
 	}
 }

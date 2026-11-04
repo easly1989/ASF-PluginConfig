@@ -24,6 +24,21 @@ public sealed class ConfigValue {
 	}
 }
 
+// A raw key's value as JSON text, so numbers JavaScript cannot hold exactly (a SteamID64) survive the page; Text is
+// absent when the key is not set
+public sealed class RawValue {
+	[JsonInclude]
+	public string? Text { get; private init; }
+
+	[JsonInclude]
+	public string Version { get; private init; }
+
+	internal RawValue(string? text, string version) {
+		Text = text;
+		Version = version;
+	}
+}
+
 public sealed class ConfigWriteRequest {
 	// Dotted paths of writeOnly fields to remove; any other secret the value leaves out is kept
 	[JsonInclude]

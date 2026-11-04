@@ -14,11 +14,8 @@ namespace ASFPluginConfig;
 internal static class AsfKeys {
 	internal static FrozenSet<string> Owned { get; } = Names(typeof(GlobalConfig)).Concat(Names(typeof(BotConfig))).ToFrozenSet(StringComparer.OrdinalIgnoreCase);
 
-	// Public property names, plus the JSON names ASF writes, some of them on private properties (s_SteamOwnerID)
+	// Every property name whatever its visibility, since ASF also reads internal [JsonInclude] ones (WebProxyPassword),
+	// plus the JSON names it writes on some (s_SteamOwnerID); refusing a name ASF never reads costs nothing
 	private static IEnumerable<string> Names(Type config) => config.GetProperties(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
-		.SelectMany(static property => property switch {
-			_ when property.GetCustomAttribute<JsonPropertyNameAttribute>() is { } json => [property.Name, json.Name],
-			{ GetMethod.IsPublic: true } => [property.Name],
-			_ => Array.Empty<string>()
-		});
+		.SelectMany(static property => property.GetCustomAttribute<JsonPropertyNameAttribute>() is { } json ? [property.Name, json.Name] : new[] { property.Name });
 }

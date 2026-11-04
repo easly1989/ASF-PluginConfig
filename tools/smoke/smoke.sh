@@ -5,8 +5,9 @@
 #   with it; the demo plugin's embedded schema is discovered; a global save is validated (400), version-checked (409),
 #   written into ASF.json without touching other keys, and makes ASF exit to apply it (AutoRestart is off); a bot save
 #   writes that bot's file and ASF keeps running; unknown or path-like bot names get 404; the stored secret is never
-#   returned, only named as set, and a save that omits it keeps it in ASF.json;
-# - without an IPCPassword: a save is refused with 403;
+#   returned, only named as set, and a save that omits it keeps it in ASF.json; the raw editor lists and saves a key
+#   without a schema, and refuses ASF's own keys, keys with a schema and invalid JSON without writing;
+# - without an IPCPassword: a save is refused with 403, a raw one too;
 # - without an IPCPassword but with AllowWritesWithoutIPCPassword on: ASF logs the warning, the host reports it, and a
 #   save that clears the secret is written;
 # - the update button is on the page and ASF's own POST /Api/Plugins/Update answers its request;
@@ -110,7 +111,8 @@ cat > "$work/config/ASF.json" <<EOF
 	"IPCPassword": "${password}",
 	"UpdateChannel": 0,
 	"UpdatePeriod": 0,
-	"DemoNotifier": { "ServerUrl": "https://old.example.org", "AccessToken": "${token}", "Legacy": "kept" }
+	"DemoNotifier": { "ServerUrl": "https://old.example.org", "AccessToken": "${token}", "Legacy": "kept" },
+	"OtherPlugin": { "Mode": 1 }
 }
 EOF
 
@@ -215,6 +217,45 @@ kill -0 "$asf_pid" 2>/dev/null || fail "ASF exited after a bot save"
 curl -fsS --max-time 20 -H "Authentication: ${password}" "${ipc}/Api/PluginConfig" > /dev/null || fail "IPC stopped answering after a bot save"
 echo "OK: ASF keeps running after a bot save"
 
+raw="${ipc}/Api/PluginConfig/Raw"
+keys=$(curl -fsS --max-time 20 -H "Authentication: ${password}" "${raw}/Global") || fail "the raw key list failed"
+case "$keys" in
+	*'"Result":["OtherPlugin"]'*) echo "OK: the raw key list offers only the key without a schema" ;;
+	*) fail "unexpected raw key list: $keys" ;;
+esac
+
+for key in IPCPassword WebProxyPassword DemoNotifier ASFPluginConfig; do
+	code=$(curl -sS --max-time 20 -o "$work/raw.json" -w '%{http_code}' -H "Authentication: ${password}" "${raw}/Global/${key}")
+	[ "$code" = 400 ] || fail "a raw read of ${key} answered $code, expected 400"
+	grep -q -- "$token" "$work/raw.json" && fail "a raw read returned the stored secret"
+done
+
+global_version=$(curl -fsS --max-time 20 -H "Authentication: ${password}" "${raw}/Global/OtherPlugin" | sed -n 's/.*"Version":"\([0-9A-F]*\)".*/\1/p')
+[ -n "$global_version" ] || fail "no version for the raw global value"
+code=$(curl -sS --max-time 20 -o "$work/raw.json" -w '%{http_code}' -X POST -H "Authentication: ${password}" -H 'Content-Type: application/json' -d "{\"Value\":\"x\",\"Version\":\"${global_version}\"}" "${raw}/Global/IPCPassword")
+[ "$code" = 400 ] || fail "a raw save of IPCPassword answered $code, expected 400: $(cat "$work/raw.json")"
+echo "OK: the raw editor refuses ASF's own keys and keys with a schema"
+
+smoke_before=$(sha256sum "$work/config/smoke.json")
+raw_version=$(curl -fsS --max-time 20 -H "Authentication: ${password}" "${raw}/Bots/smoke/OtherPlugin" | sed -n 's/.*"Version":"\([0-9A-F]*\)".*/\1/p')
+[ -n "$raw_version" ] || fail "no version for the raw bot value"
+code=$(curl -sS --max-time 20 -o "$work/raw.json" -w '%{http_code}' -X POST -H "Authentication: ${password}" -H 'Content-Type: application/json' -d "{\"Value\":[1,2,\"Version\":\"${raw_version}\"}" "${raw}/Bots/smoke/OtherPlugin")
+[ "$code" = 400 ] || fail "invalid JSON answered $code, expected 400"
+[ "$(sha256sum "$work/config/smoke.json")" = "$smoke_before" ] || fail "invalid JSON changed smoke.json"
+echo "OK: invalid JSON is refused with nothing written"
+
+code=$(curl -sS --max-time 20 -o "$work/raw.json" -w '%{http_code}' -X POST -H "Authentication: ${password}" -H 'Content-Type: application/json' -d "{\"Value\":[1,\"two\",76561198012345678],\"Version\":\"${raw_version}\"}" "${raw}/Bots/smoke/OtherPlugin")
+[ "$code" = 200 ] || fail "a raw bot save answered $code: $(cat "$work/raw.json")"
+"$python" - "$work/config/smoke.json" <<'PY' || fail "smoke.json is not what the raw save should have written"
+import json, sys
+config = json.load(open(sys.argv[1], encoding="utf-8"))
+assert config["OtherPlugin"] == [1, "two", 76561198012345678] and config["DemoNotifier"]["Unknown"] == 1, config
+print("OK: the raw save wrote its key into smoke.json and left the rest")
+PY
+curl -fsS --max-time 20 -H "Authentication: ${password}" "${raw}/Bots/smoke/OtherPlugin" | grep -q '76561198012345678' || fail "the raw read did not return the SteamID64 exactly"
+echo "OK: the raw read returns a number past 2^53 as written"
+sleep 2
+
 stored=$(curl -fsS --max-time 20 -H "Authentication: ${password}" "${ipc}/Api/PluginConfig/Plugins/DemoNotifier/Global") || fail "reading the global value failed"
 version=$(printf '%s' "$stored" | sed -n 's/.*"Version":"\([0-9A-F]*\)".*/\1/p')
 [ -n "$version" ] || fail "no version in $stored"
@@ -272,7 +313,10 @@ version=$(curl -fsS --max-time 20 "${ipc}/Api/PluginConfig/Plugins/DemoNotifier/
 code=$(save_global "" "{\"Value\":{\"ServerUrl\":\"https://other.example.org\"},\"Version\":\"${version}\"}")
 [ "$code" = 403 ] || fail "a save without IPCPassword answered $code, expected 403: $(cat "$work/save.json")"
 grep -q 'IPCPassword' "$work/save.json" || fail "the 403 does not explain itself: $(cat "$work/save.json")"
-echo "OK: 403 on a save while IPCPassword is empty"
+version=$(curl -fsS --max-time 20 "${ipc}/Api/PluginConfig/Raw/Global/OtherPlugin" | sed -n 's/.*"Version":"\([0-9A-F]*\)".*/\1/p')
+code=$(curl -sS --max-time 20 -o "$work/save.json" -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d "{\"Value\":2,\"Version\":\"${version}\"}" "${ipc}/Api/PluginConfig/Raw/Global/OtherPlugin")
+[ "$code" = 403 ] || fail "a raw save without IPCPassword answered $code, expected 403"
+echo "OK: 403 on a save, and on a raw save, while IPCPassword is empty"
 
 curl -fsS --max-time 20 -X POST "${ipc}/Api/ASF/Exit" > /dev/null || fail "IPC exit failed"
 wait_exit 30

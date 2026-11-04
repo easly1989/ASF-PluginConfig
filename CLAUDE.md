@@ -42,7 +42,7 @@ Requires the .NET 10 SDK. Clone with submodules.
 - Never log, return or commit a secret. Values of `writeOnly` schema fields never leave the host: reads mask them
   and name the set ones, a save that omits one keeps it, and `ClearSecrets` removes one (`Secrets`). The raw editor
   (`Raw/...` endpoints) refuses ASF's own keys and every key that has a schema (`RawKeys`), so it can never bypass the
-  masking. Fixtures use obviously fake values.
+  masking. A schema that fails to parse still puts its `configKey` off limits (`SchemaCatalog.RejectedKeys`), and an unreadable one, or a scan that threw (`SchemaCatalog.Incomplete`/`Failed`), turns the raw editor off. Raw reads need `WritesAllowed` like saves, since they are unmasked. Fixtures use obviously fake values.
 - Release tags are plain versions (`1.0.0.0`, no `v`): ASF's plugin updater parses them with `new Version(tag)`.
 
 ## Agent skills

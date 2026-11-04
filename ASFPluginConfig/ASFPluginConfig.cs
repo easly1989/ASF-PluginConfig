@@ -14,8 +14,8 @@ namespace ASFPluginConfig;
 internal sealed class ASFPluginConfig : IASF, IGitHubPluginUpdates, IWebInterface {
 	internal const string PageWebPath = "/plugin-config";
 
-	// Set once in OnLoaded, read by the controller on request threads
-	internal static SchemaCatalog Catalog { get; private set; } = SchemaCatalog.Empty;
+	// Set once in OnLoaded, read by the controller on request threads; until then nothing is known, so nothing is free
+	internal static SchemaCatalog Catalog { get; private set; } = SchemaCatalog.Failed;
 
 	public string Name => nameof(ASFPluginConfig);
 	public string PhysicalPath => "www";
@@ -37,10 +37,11 @@ internal sealed class ASFPluginConfig : IASF, IGitHubPluginUpdates, IWebInterfac
 
 	public Task OnLoaded() {
 		// ASF loads every plugin assembly before it calls OnLoaded, so the scan sees them all. A throw here would make ASF
-		// drop the whole plugin, so a failed scan leaves the catalog empty instead
+		// drop the whole plugin, so a failed scan leaves the catalog marked failed instead: no form, and no raw access
 		try {
 			Catalog = SchemaCatalog.Load(AppDomain.CurrentDomain.GetAssemblies(), static message => ASF.ArchiLogger.LogGenericError(message));
 		} catch (Exception e) {
+			Catalog = SchemaCatalog.Failed;
 			ASF.ArchiLogger.LogGenericException(e);
 		}
 

@@ -34,7 +34,7 @@ Each plugin that ships a schema gets a card. Open **Global settings**, or **Bot 
 
 The **Other plugins (raw JSON)** card edits one top-level key of `ASF.json` or of a bot's config file as JSON. Pick a key the file already has or type a new one, edit the value and save; `null` removes the key. Saves go through the same checks as the forms. ASF's own settings and the keys of plugins that ship a schema are refused there.
 
-Raw values are shown as stored, so a secret in a plugin's key is visible to anyone who can open the page. A plugin that wants its secrets hidden ships a schema and marks them `writeOnly`.
+Raw values are shown as stored, so a secret in a plugin's key is visible to anyone who can open the page. Reading them therefore needs what saving needs: `IPCPassword`, or the opt-in below; without either the card is hidden and the endpoints answer 403. If a plugin's schema is invalid, or ASF Plugin Config cannot read the schemas at all, the raw editor refuses the affected keys, or every key, since their secrets cannot be told apart; ASF's log says why. A plugin that wants its secrets hidden ships a schema and marks them `writeOnly`.
 
 ### Saving without `IPCPassword`
 

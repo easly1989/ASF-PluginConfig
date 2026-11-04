@@ -500,7 +500,10 @@ function renderPlugins(plugins) {
 		pluginList.append(item);
 	}
 
-	pluginList.append(rawCard());
+	// Its endpoints are refused while nothing protects the settings; the banner above already says so
+	if (host.WritesAllowed) {
+		pluginList.append(rawCard());
+	}
 	pluginList.hidden = false;
 }
 

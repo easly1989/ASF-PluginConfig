@@ -7,7 +7,7 @@
 #   writes that bot's file and ASF keeps running; unknown or path-like bot names get 404; the stored secret is never
 #   returned, only named as set, and a save that omits it keeps it in ASF.json; the raw editor lists and saves a key
 #   without a schema, and refuses ASF's own keys, keys with a schema and invalid JSON without writing;
-# - without an IPCPassword: a save is refused with 403, a raw one too;
+# - without an IPCPassword: a save is refused with 403, a raw one and every raw read too;
 # - without an IPCPassword but with AllowWritesWithoutIPCPassword on: ASF logs the warning, the host reports it, and a
 #   save that clears the secret is written;
 # - the update button is on the page and ASF's own POST /Api/Plugins/Update answers its request;
@@ -313,10 +313,16 @@ version=$(curl -fsS --max-time 20 "${ipc}/Api/PluginConfig/Plugins/DemoNotifier/
 code=$(save_global "" "{\"Value\":{\"ServerUrl\":\"https://other.example.org\"},\"Version\":\"${version}\"}")
 [ "$code" = 403 ] || fail "a save without IPCPassword answered $code, expected 403: $(cat "$work/save.json")"
 grep -q 'IPCPassword' "$work/save.json" || fail "the 403 does not explain itself: $(cat "$work/save.json")"
-version=$(curl -fsS --max-time 20 "${ipc}/Api/PluginConfig/Raw/Global/OtherPlugin" | sed -n 's/.*"Version":"\([0-9A-F]*\)".*/\1/p')
-code=$(curl -sS --max-time 20 -o "$work/save.json" -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d "{\"Value\":2,\"Version\":\"${version}\"}" "${ipc}/Api/PluginConfig/Raw/Global/OtherPlugin")
+# The guard answers before the version is looked at, and a raw read is refused here too
+code=$(curl -sS --max-time 20 -o "$work/save.json" -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d '{"Value":2,"Version":"0000"}' "${ipc}/Api/PluginConfig/Raw/Global/OtherPlugin")
 [ "$code" = 403 ] || fail "a raw save without IPCPassword answered $code, expected 403"
 echo "OK: 403 on a save, and on a raw save, while IPCPassword is empty"
+for path in Raw/Global Raw/Global/OtherPlugin Raw/Bots/smoke Raw/Bots/smoke/OtherPlugin; do
+	code=$(curl -sS --max-time 20 -o "$work/raw.json" -w '%{http_code}' "${ipc}/Api/PluginConfig/${path}")
+	[ "$code" = 403 ] || fail "a raw read of ${path} without IPCPassword answered $code, expected 403"
+	grep -q 'unmasked' "$work/raw.json" || fail "the raw 403 does not explain itself: $(cat "$work/raw.json")"
+done
+echo "OK: raw reads are refused too while IPCPassword is empty"
 
 curl -fsS --max-time 20 -X POST "${ipc}/Api/ASF/Exit" > /dev/null || fail "IPC exit failed"
 wait_exit 30
@@ -334,6 +340,8 @@ grep -q 'AllowWritesWithoutIPCPassword is on and IPCPassword is empty' "$work/as
 echo "OK: the opt-in warning is logged at start-up"
 curl -fsS --max-time 20 "${ipc}/Api/PluginConfig" | grep -q '"WritesWithoutPassword":true' || fail "the host does not report writes without a password"
 echo "OK: the host reports writes without a password"
+curl -fsS --max-time 20 "${ipc}/Api/PluginConfig/Raw/Global" | grep -q '"Result":\["OtherPlugin"\]' || fail "raw reads do not work with the opt-in on"
+echo "OK: raw reads work with the opt-in on"
 version=$(curl -fsS --max-time 20 "${ipc}/Api/PluginConfig/Plugins/DemoNotifier/Global" | sed -n 's/.*"Version":"\([0-9A-F]*\)".*/\1/p')
 code=$(save_global "" "{\"Value\":{\"ServerUrl\":\"https://optin.example.org\"},\"Version\":\"${version}\",\"ClearSecrets\":[\"AccessToken\"]}")
 [ "$code" = 200 ] || fail "a save with the opt-in on answered $code: $(cat "$work/save.json")"

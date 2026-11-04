@@ -95,7 +95,16 @@ internal static class ConfigFile {
 					File.Move(temp, path, true);
 				} catch (IOException) {
 					// A single file bind-mounted into a container cannot be replaced, only rewritten in place
-					WriteDurably(path, updated);
+					try {
+						WriteDurably(path, updated);
+					} catch (Exception e) when (e is IOException or UnauthorizedAccessException) {
+						// FileMode.Create truncated the file before the write failed: put the old content back
+						// rather than leave it cut short
+						TryRestore(path, bytes);
+
+						throw;
+					}
+
 					File.Delete(temp);
 				}
 			} catch (Exception e) when (e is IOException or UnauthorizedAccessException) {
@@ -109,6 +118,14 @@ internal static class ConfigFile {
 	}
 
 	internal static string Version(byte[] bytes) => Convert.ToHexString(SHA256.HashData(bytes));
+
+	private static void TryRestore(string path, byte[] original) {
+		try {
+			WriteDurably(path, original);
+		} catch (Exception e) when (e is IOException or UnauthorizedAccessException) {
+			// Nothing more to do; the caller reports the failed write
+		}
+	}
 
 	private static void TryDelete(string path) {
 		try {

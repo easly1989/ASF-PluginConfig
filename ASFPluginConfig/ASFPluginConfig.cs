@@ -67,13 +67,13 @@ internal sealed class ASFPluginConfig : IASF, IGitHubPluginUpdates, IWebInterfac
 		return Task.CompletedTask;
 	}
 
-	// Checked on each read rather than through AppDomain.AssemblyLoad, which ASF's trimmed builds drop. A load changes the
-	// count, so nothing else is looked at while it stays the same
+	// Checked on each read rather than through AppDomain.AssemblyLoad, which ASF's trimmed builds drop. Every loaded assembly
+	// is looked up, not only when the count changes: an assembly that was collected and a new one would cancel out
 	private static bool LoadedLater() {
 		Assembly[] loaded = AppDomain.CurrentDomain.GetAssemblies();
 
 		lock (LoadGate) {
-			if ((Known == null) || (loaded.Length == Known.Count)) {
+			if (Known == null) {
 				return false;
 			}
 

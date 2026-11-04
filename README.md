@@ -88,7 +88,7 @@ With the opt-in on, the page shows a banner, and the raw JSON card is hidden (le
 - **The raw editor cannot reach those secrets.** It refuses ASF's own settings and every key that has a schema, including one whose schema this plugin rejected as invalid. If it cannot tell which keys are safe, because a plugin's schema could not be read, it refuses all of them. For a plugin without a schema, values are shown as stored, which is why raw reads need a real `IPCPassword`.
 - **The page itself holds no data.** `/plugin-config/` is a static page, served without a password. Everything it shows comes from `/Api` after you enter the IPC password, which the page keeps for the browser tab only.
 - **What ASF itself still exposes.** Whoever can use ASF's IPC can already run commands, restart or stop ASF, start and stop bots, and change or delete bot configurations through ASF's own endpoints. This plugin neither widens nor narrows that. It only adds editing the settings of plugins. Keep IPC off the internet.
-- **Config files stay plain text on disk**, as in ASF itself. Their permissions are yours to set.
+- **Config files stay plain text on disk**, as in ASF itself. Their permissions are yours to set, and on Linux and macOS a save currently gives the file the default mode again, so restrict it again after saving ([#21](https://github.com/easly1989/ASF-PluginConfig/issues/21)).
 - **Known gaps** are open issues: [#18](https://github.com/easly1989/ASF-PluginConfig/issues/18) (a write by ASF in the instant between this plugin's version check and its file swap is lost) and [#20](https://github.com/easly1989/ASF-PluginConfig/issues/20) (a plugin loaded after start-up is not scanned for a schema).
 
 ## For plugin authors: the schema contract

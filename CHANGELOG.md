@@ -28,4 +28,5 @@ First release. Requires ASF 6.3.11.7 or later.
 
 - A write by ASF in the instant between this plugin's version check and its file swap is lost ([#18](https://github.com/easly1989/ASF-PluginConfig/issues/18)).
 - A plugin loaded after start-up is not scanned for a schema ([#20](https://github.com/easly1989/ASF-PluginConfig/issues/20)).
+- A save gives the config file the default file mode again, so a file you had restricted to its owner on Linux or macOS needs `chmod 600` after a save ([#21](https://github.com/easly1989/ASF-PluginConfig/issues/21)).
 - When ASF cannot replace a config file because it is a single file bind-mounted into a container, the file is rewritten in place. That rewrite is not atomic, and the recovery after a failed rewrite has not been tested.

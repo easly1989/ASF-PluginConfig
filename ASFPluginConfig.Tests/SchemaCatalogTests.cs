@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Reflection;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace ASFPluginConfig.Tests;
@@ -96,6 +97,38 @@ internal sealed class SchemaCatalogTests {
 		Assert.IsFalse(SchemaCatalog.Load([typeof(SchemaCatalogTests).Assembly], static _ => { }).Incomplete);
 		Assert.IsFalse(SchemaCatalog.Empty.Incomplete);
 		Assert.IsTrue(SchemaCatalog.Failed.Incomplete);
+	}
+
+	[TestMethod]
+	internal void AnAssemblyThatLoadsLaterMayCarryASchemaOnlyWhenItListsOne() {
+		Assert.IsTrue(SchemaCatalog.MayCarrySchema(new FakeAssembly("Late", "{ }")));
+		Assert.IsTrue(SchemaCatalog.MayCarrySchema(new ThrowingAssembly()), "an assembly that cannot be inspected fails closed");
+		Assert.IsFalse(SchemaCatalog.MayCarrySchema(typeof(object).Assembly));
+	}
+
+	[TestMethod]
+	internal void OnlyAnAssemblyNewToTheScanCountsAsLate() {
+		FakeAssembly scanned = new("Scanned", "{ }");
+		FakeAssembly late = new("Late", "{ }");
+		HashSet<Assembly> known = [scanned];
+
+		Assert.IsFalse(SchemaCatalog.AnyNewSchemaCarrier([scanned, typeof(object).Assembly], known), "the scan listed the first, and the second holds no schema");
+		Assert.IsTrue(SchemaCatalog.AnyNewSchemaCarrier([scanned, late], known));
+		Assert.IsFalse(SchemaCatalog.AnyNewSchemaCarrier([scanned, late], known), "each new assembly is judged once");
+		Assert.HasCount(3, known);
+	}
+
+	[TestMethod]
+	internal void ACatalogMarkedIncompleteKeepsItsSchemasAndRefusesEveryKey() {
+		SchemaCatalog scanned = SchemaCatalog.Load([new FakeAssembly("Demo", """{ "configKey": "DemoNotifier", "global": { "type": "object" } }""")], static _ => { });
+
+		SchemaCatalog late = scanned.AsIncomplete();
+
+		Assert.IsFalse(scanned.Incomplete);
+		Assert.IsTrue(late.Incomplete);
+		Assert.HasCount(1, late.Schemas);
+		Assert.IsNotNull(RawKeys.Refusal("Other", late));
+		Assert.AreSame(late, late.AsIncomplete());
 	}
 
 	[TestMethod]

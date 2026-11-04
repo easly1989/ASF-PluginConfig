@@ -65,7 +65,8 @@ internal static class ConfigFile {
 
 	// value null removes the key. Properties the schema does not define are carried over from the stored value, so a form
 	// that only knows the schema never drops them; without a schema (the raw editor) the value replaces the stored one
-	internal static (Outcome Outcome, string? Version) Write(string path, string key, JsonElement? schema, JsonElement? value, string expectedVersion) {
+	// beforeSwap is a seam for tests: it runs once the new content is on disk, right before the file is checked again
+	internal static (Outcome Outcome, string? Version) Write(string path, string key, JsonElement? schema, JsonElement? value, string expectedVersion, Action? beforeSwap = null) {
 		ArgumentException.ThrowIfNullOrEmpty(path);
 		ArgumentException.ThrowIfNullOrEmpty(key);
 		ArgumentNullException.ThrowIfNull(expectedVersion);
@@ -95,7 +96,27 @@ internal static class ConfigFile {
 			bool damaged = false;
 
 			try {
+				// A file the owner locked down (600, for an IPCPassword) must not come back with the umask's mode. On Unix the
+				// temp file starts as a copy of the original: .NET creates it with the original's mode, before a byte of content
+				// is copied, and the rewrite below keeps it. A leftover temp file goes first, as it would keep its own mode. ASF's
+				// trimmed builds can neither read a mode nor set one on a handle, so there is no reading and applying it
+				if (!OperatingSystem.IsWindows()) {
+					TryDelete(temp);
+					File.Copy(path, temp);
+				}
+
 				WriteDurably(temp, updated);
+
+				// The slow part, the flush to disk, is behind us: look once more for a write by someone else while it ran, as
+				// the last step before the swap. Only the instant between this read and the move stays open, and nothing in
+				// user space closes it: ASF takes no lock on its config files
+				beforeSwap?.Invoke();
+
+				if (!File.ReadAllBytes(path).AsSpan().SequenceEqual(bytes)) {
+					TryDelete(temp);
+
+					return (Outcome.Stale, null);
+				}
 
 				try {
 					File.Move(temp, path, true);

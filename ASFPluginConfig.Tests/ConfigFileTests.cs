@@ -99,6 +99,56 @@ internal sealed class ConfigFileTests {
 	}
 
 	[TestMethod]
+	internal void AWriteByAnotherWhileOursWasOnItsWayIsNotOverwritten() {
+		File.WriteAllText(Path, """{ "Demo": { "Url": "https://e.org" } }""");
+		string version = ConfigFile.Read(Path, "Demo").Version!;
+		const string theirs = """{ "Demo": { "Url": "https://changed-elsewhere.example" } }""";
+
+		(ConfigFile.Outcome outcome, string? newVersion) = ConfigFile.Write(Path, "Demo", Schema, Value("""{ "Url": "https://mine.example" }"""), version, () => File.WriteAllText(Path, theirs));
+
+		Assert.AreEqual(ConfigFile.Outcome.Stale, outcome);
+		Assert.IsNull(newVersion);
+		Assert.AreEqual(theirs, File.ReadAllText(Path));
+		Assert.IsFalse(File.Exists(Path + ConfigFile.TempSuffix), "the temp file is not left behind");
+	}
+
+	[TestMethod]
+	internal void AWriteKeepsTheFileMode() {
+		if (OperatingSystem.IsWindows()) {
+			Assert.Inconclusive("Windows files have no Unix mode");
+
+			return;
+		}
+
+		File.WriteAllText(Path, """{ "IPCPassword": "FAKE", "Demo": { "Url": "https://e.org" } }""");
+		File.SetUnixFileMode(Path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+
+		(ConfigFile.Outcome outcome, _) = ConfigFile.Write(Path, "Demo", Schema, Value("""{ "Url": "https://new.example" }"""), ConfigFile.Read(Path, "Demo").Version!);
+
+		Assert.AreEqual(ConfigFile.Outcome.Written, outcome);
+		Assert.AreEqual(UnixFileMode.UserRead | UnixFileMode.UserWrite, File.GetUnixFileMode(Path));
+	}
+
+	[TestMethod]
+	internal void ALeftoverTempFileDoesNotLendItsModeToTheSave() {
+		if (OperatingSystem.IsWindows()) {
+			Assert.Inconclusive("Windows files have no Unix mode");
+
+			return;
+		}
+
+		File.WriteAllText(Path, """{ "IPCPassword": "FAKE", "Demo": { "Url": "https://e.org" } }""");
+		File.SetUnixFileMode(Path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+		File.WriteAllText(Path + ConfigFile.TempSuffix, "left behind by a failed save");
+		File.SetUnixFileMode(Path + ConfigFile.TempSuffix, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.GroupRead | UnixFileMode.OtherRead);
+
+		(ConfigFile.Outcome outcome, _) = ConfigFile.Write(Path, "Demo", Schema, Value("""{ "Url": "https://new.example" }"""), ConfigFile.Read(Path, "Demo").Version!);
+
+		Assert.AreEqual(ConfigFile.Outcome.Written, outcome);
+		Assert.AreEqual(UnixFileMode.UserRead | UnixFileMode.UserWrite, File.GetUnixFileMode(Path));
+	}
+
+	[TestMethod]
 	internal void AStaleVersionWritesNothing() {
 		File.WriteAllText(Path, """{ "Demo": { "Url": "https://e.org" } }""");
 		string version = ConfigFile.Read(Path, "Demo").Version!;

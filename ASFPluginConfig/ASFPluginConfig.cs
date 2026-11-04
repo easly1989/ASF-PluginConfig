@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Reflection;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 using ArchiSteamFarm.Core;
 using ArchiSteamFarm.Plugins.Interfaces;
@@ -14,13 +16,18 @@ namespace ASFPluginConfig;
 internal sealed class ASFPluginConfig : IASF, IGitHubPluginUpdates, IWebInterface {
 	internal const string PageWebPath = "/plugin-config";
 
+	private static readonly Lock LoadGate = new();
+
+	// The assemblies the scan saw, and those checked since. Null until the scan: nothing is known, so nothing is free
+	private static HashSet<Assembly>? Known;
+
 	// A plugin assembly that loaded after the scan was never scanned: any key could hold its secrets
 	private static volatile bool LateSchema;
 
-	// Set once in OnLoaded, read by the controller on request threads; until then nothing is known, so nothing is free
+	// Set once in OnLoaded, read by the controller on request threads
 	private static volatile SchemaCatalog Scanned = SchemaCatalog.Failed;
 
-	internal static SchemaCatalog Catalog => LateSchema ? Scanned.AsIncomplete() : Scanned;
+	internal static SchemaCatalog Catalog => LateSchema || LoadedLater() ? Scanned.AsIncomplete() : Scanned;
 
 	public string Name => nameof(ASFPluginConfig);
 	public string PhysicalPath => "www";
@@ -43,14 +50,16 @@ internal sealed class ASFPluginConfig : IASF, IGitHubPluginUpdates, IWebInterfac
 	public Task OnLoaded() {
 		// ASF loads every plugin assembly before it calls OnLoaded, so the scan sees them all. A throw here would make ASF
 		// drop the whole plugin, so a failed scan leaves the catalog marked failed instead: no form, and no raw access
-		// Listening before the scan, so an assembly loading while it runs is not missed
-		AppDomain.CurrentDomain.AssemblyLoad += OnAssemblyLoad;
+		lock (LoadGate) {
+			Assembly[] loaded = AppDomain.CurrentDomain.GetAssemblies();
+			Known = [.. loaded];
 
-		try {
-			Scanned = SchemaCatalog.Load(AppDomain.CurrentDomain.GetAssemblies(), static message => ASF.ArchiLogger.LogGenericError(message));
-		} catch (Exception e) {
-			Scanned = SchemaCatalog.Failed;
-			ASF.ArchiLogger.LogGenericException(e);
+			try {
+				Scanned = SchemaCatalog.Load(loaded, static message => ASF.ArchiLogger.LogGenericError(message));
+			} catch (Exception e) {
+				Scanned = SchemaCatalog.Failed;
+				ASF.ArchiLogger.LogGenericException(e);
+			}
 		}
 
 		ASF.ArchiLogger.LogGenericInfo($"{Name} {Version} loaded, page at {PageWebPath}/, {Catalog.Schemas.Length} config schema(s) found");
@@ -58,14 +67,26 @@ internal sealed class ASFPluginConfig : IASF, IGitHubPluginUpdates, IWebInterfac
 		return Task.CompletedTask;
 	}
 
-	private static void OnAssemblyLoad(object? sender, AssemblyLoadEventArgs args) {
-		if (LateSchema || !SchemaCatalog.MayCarrySchema(args.LoadedAssembly)) {
-			return;
-		}
+	// Checked on each read rather than through AppDomain.AssemblyLoad, which ASF's trimmed builds drop. A load changes the
+	// count, so nothing else is looked at while it stays the same
+	private static bool LoadedLater() {
+		Assembly[] loaded = AppDomain.CurrentDomain.GetAssemblies();
 
-		// Failing closed: the raw editor stays off until ASF restarts and the scan sees the assembly
-		LateSchema = true;
-		ASF.ArchiLogger.LogGenericWarning($"{args.LoadedAssembly.FullName} loaded after the config schema scan and may carry a schema: the raw editor is off until ASF restarts");
+		lock (LoadGate) {
+			if ((Known == null) || (loaded.Length == Known.Count)) {
+				return false;
+			}
+
+			if (!SchemaCatalog.AnyNewSchemaCarrier(loaded, Known)) {
+				return false;
+			}
+
+			// Failing closed: the raw editor stays off until ASF restarts and the scan sees the assembly
+			LateSchema = true;
+			ASF.ArchiLogger.LogGenericWarning("A plugin assembly loaded after the config schema scan and may carry a schema: the raw editor is off until ASF restarts");
+
+			return true;
+		}
 	}
 }
 #pragma warning restore CA1812 // ASF uses this class during runtime

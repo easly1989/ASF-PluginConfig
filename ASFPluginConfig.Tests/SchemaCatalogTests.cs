@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Reflection;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace ASFPluginConfig.Tests;
@@ -103,6 +104,18 @@ internal sealed class SchemaCatalogTests {
 		Assert.IsTrue(SchemaCatalog.MayCarrySchema(new FakeAssembly("Late", "{ }")));
 		Assert.IsTrue(SchemaCatalog.MayCarrySchema(new ThrowingAssembly()), "an assembly that cannot be inspected fails closed");
 		Assert.IsFalse(SchemaCatalog.MayCarrySchema(typeof(object).Assembly));
+	}
+
+	[TestMethod]
+	internal void OnlyAnAssemblyNewToTheScanCountsAsLate() {
+		FakeAssembly scanned = new("Scanned", "{ }");
+		FakeAssembly late = new("Late", "{ }");
+		HashSet<Assembly> known = [scanned];
+
+		Assert.IsFalse(SchemaCatalog.AnyNewSchemaCarrier([scanned, typeof(object).Assembly], known), "the scan listed the first, and the second holds no schema");
+		Assert.IsTrue(SchemaCatalog.AnyNewSchemaCarrier([scanned, late], known));
+		Assert.IsFalse(SchemaCatalog.AnyNewSchemaCarrier([scanned, late], known), "each new assembly is judged once");
+		Assert.HasCount(3, known);
 	}
 
 	[TestMethod]

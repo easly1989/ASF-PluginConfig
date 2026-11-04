@@ -18,6 +18,17 @@ internal sealed class FakeAssembly(string name, string schemaJson) : Assembly {
 	public override Stream? GetManifestResourceStream(string name) => name == ResourceName ? new MemoryStream(Encoding.UTF8.GetBytes(schemaJson)) : null;
 }
 
+// Lists the schema resource but cannot open it, as a damaged assembly might
+internal sealed class NoStreamAssembly(string name) : Assembly {
+	public override string FullName => name;
+
+	public override AssemblyName GetName() => new(name);
+
+	public override string[] GetManifestResourceNames() => [name + SchemaCatalog.ResourceSuffix];
+
+	public override Stream? GetManifestResourceStream(string resource) => null;
+}
+
 internal sealed class ThrowingAssembly : Assembly {
 	public override string FullName => "Throwing";
 

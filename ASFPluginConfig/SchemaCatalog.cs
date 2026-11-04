@@ -73,12 +73,14 @@ internal sealed class SchemaCatalog {
 		return new SchemaCatalog([.. schemas.OrderBy(static schema => schema.Title, StringComparer.OrdinalIgnoreCase)], rejected.ToImmutableHashSet(StringComparer.OrdinalIgnoreCase), incomplete);
 	}
 
-	// The configKey of a schema that failed to parse, when its text still names one
+	// The configKey of a schema that failed to parse, when its text still names one the way a valid schema must: non-blank
+	// and without surrounding spaces. Anything else could be a mistyped form of a key that is in use, which a plugin
+	// reads as typed or trimmed; such a schema names no key we can refuse, so the caller treats it as unreadable
 	private static string? KeyOf(string json) {
 		try {
 			using JsonDocument document = JsonDocument.Parse(json);
 
-			return JsonUtil.String(document.RootElement, "configKey") is { Length: > 0 } key ? key : null;
+			return JsonUtil.String(document.RootElement, "configKey") is { } key && !string.IsNullOrWhiteSpace(key) && (key.Trim() == key) ? key : null;
 		} catch (JsonException) {
 			return null;
 		}
@@ -99,7 +101,11 @@ internal sealed class SchemaCatalog {
 
 		using Stream? stream = assembly.GetManifestResourceStream(resource);
 
+		// The resource is listed but cannot be opened: whatever it guards stays unknown
 		if (stream == null) {
+			logError($"Config schema of {name} cannot be read: its resource has no stream");
+			incomplete = true;
+
 			return null;
 		}
 

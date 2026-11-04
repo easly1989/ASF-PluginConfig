@@ -7,6 +7,7 @@ using System.Security.Cryptography;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Threading;
+using ArchiSteamFarm.Core;
 
 namespace ASFPluginConfig;
 
@@ -87,6 +88,7 @@ internal static class ConfigFile {
 			}
 
 			string temp = path + TempSuffix;
+			bool damaged = false;
 
 			try {
 				WriteDurably(temp, updated);
@@ -100,7 +102,11 @@ internal static class ConfigFile {
 					} catch (Exception e) when (e is IOException or UnauthorizedAccessException) {
 						// FileMode.Create truncated the file before the write failed: put the old content back
 						// rather than leave it cut short
-						TryRestore(path, bytes);
+						if (!TryRestore(path, bytes)) {
+							// Neither the new nor the old content made it: the temp file is the only copy of the new one
+							damaged = true;
+							ASF.ArchiLogger.LogGenericError($"{Path.GetFileName(path)} may be damaged: writing it failed and its old content could not be restored. The content that should have been written is kept in {Path.GetFileName(temp)}");
+						}
 
 						throw;
 					}
@@ -108,7 +114,9 @@ internal static class ConfigFile {
 					File.Delete(temp);
 				}
 			} catch (Exception e) when (e is IOException or UnauthorizedAccessException) {
-				TryDelete(temp);
+				if (!damaged) {
+					TryDelete(temp);
+				}
 
 				return (Outcome.Unwritable, null);
 			}
@@ -119,11 +127,13 @@ internal static class ConfigFile {
 
 	internal static string Version(byte[] bytes) => Convert.ToHexString(SHA256.HashData(bytes));
 
-	private static void TryRestore(string path, byte[] original) {
+	private static bool TryRestore(string path, byte[] original) {
 		try {
 			WriteDurably(path, original);
+
+			return true;
 		} catch (Exception e) when (e is IOException or UnauthorizedAccessException) {
-			// Nothing more to do; the caller reports the failed write
+			return false;
 		}
 	}
 

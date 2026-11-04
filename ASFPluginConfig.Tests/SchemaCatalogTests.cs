@@ -57,6 +57,9 @@ internal sealed class SchemaCatalogTests {
 	[DataRow("""{ "global": { "type": "object" } }""")]
 	[DataRow("""{ "configKey": "", "global": { "type": "object" } }""")]
 	[DataRow("""{ "configKey": 7, "global": { "type": "object" } }""")]
+	[DataRow("""{ "configKey": " Foo", "global": { "type": "object" } }""")]
+	[DataRow("""{ "configKey": "Foo ", "global": { "type": "object" } }""")]
+	[DataRow("""{ "configKey": "   ", "global": { "type": "object" } }""")]
 	internal void ASchemaWithoutAReadableKeyMakesTheCatalogIncomplete(string json) {
 		SchemaCatalog catalog = SchemaCatalog.Load([new FakeAssembly("Nameless", json)], static _ => { });
 
@@ -67,6 +70,26 @@ internal sealed class SchemaCatalogTests {
 
 	[TestMethod]
 	internal void AnAssemblyThatThrowsMakesTheCatalogIncomplete() => Assert.IsTrue(SchemaCatalog.Load([new ThrowingAssembly()], static _ => { }).Incomplete);
+
+	[TestMethod]
+	internal void AResourceThatCannotBeOpenedMakesTheCatalogIncomplete() {
+		List<string> errors = [];
+
+		SchemaCatalog catalog = SchemaCatalog.Load([new NoStreamAssembly("Damaged")], errors.Add);
+
+		Assert.IsTrue(catalog.Incomplete);
+		Assert.HasCount(1, errors);
+		Assert.Contains("Damaged", errors[0]);
+	}
+
+	[TestMethod]
+	internal void ASpacedKeyDoesNotHideTheRealOne() {
+		// " Foo" never becomes a rejected key, and the catalog turns incomplete, so Foo itself is not left editable
+		SchemaCatalog catalog = SchemaCatalog.Load([new FakeAssembly("Spaced", """{ "configKey": " Foo", "global": { "type": "object" } }""")], static _ => { });
+
+		Assert.IsNotNull(RawKeys.Refusal("Foo", catalog));
+		Assert.IsFalse(catalog.RejectedKeys.Contains(" Foo"));
+	}
 
 	[TestMethod]
 	internal void AGoodScanIsComplete() {

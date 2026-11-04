@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.0.1.0 - 2026-11-04
+
+Fixes the three known issues of 1.0.0.0, in whole or in part. Requires ASF 6.3.11.7 or later.
+
+### Fixed
+
+- A save keeps the config file's mode on Linux and macOS. The temp file used to take the default mode, so a file you had restricted to its owner (for the `IPCPassword` in it) came back readable by others. The mode is set before any content is written ([#21](https://github.com/easly1989/ASF-PluginConfig/issues/21)).
+- A plugin that loads after start-up and may carry a config schema turns the raw editor off until ASF restarts, and ASF logs a warning. Before, its secrets under an unscanned key could show up as plain raw JSON ([#20](https://github.com/easly1989/ASF-PluginConfig/issues/20)).
+- The config file is compared once more right before it is replaced, after the new content is flushed to disk. A write by ASF or another editor while the save was being prepared now makes the save fail with the usual "changed since you loaded it" instead of being overwritten ([#18](https://github.com/easly1989/ASF-PluginConfig/issues/18)).
+
+### Known issues
+
+- A write in the instant between that last comparison and the replacement is still lost. Closing it needs a lock across processes, and ASF takes none on its config files.
+- When ASF cannot replace a config file because it is a single file bind-mounted into a container, the file is rewritten in place. That rewrite is not atomic, and the recovery after a failed rewrite has not been tested.
+
 ## 1.0.0.0 - 2026-11-04
 
 First release. Requires ASF 6.3.11.7 or later.

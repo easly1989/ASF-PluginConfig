@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -134,6 +135,15 @@ internal sealed class ConfigFileTests {
 		Assert.AreEqual(JsonValueKind.Array, raw.ValueKind, "nothing of the stored object is merged in");
 		Assert.AreEqual("two", raw[1].GetString());
 		Assert.AreEqual("true", ConfigFile.Read(Path, "IPC").Value?.GetRawText());
+	}
+
+	[TestMethod]
+	internal void AVersionIsKeyedNotAPlainHash() {
+		byte[] bytes = Encoding.UTF8.GetBytes("""{ "SteamParentalCode": "1234" }""");
+
+		Assert.AreEqual(ConfigFile.Version(bytes), ConfigFile.Version(bytes), "stable within the process");
+		Assert.AreNotEqual(ConfigFile.Version(bytes), ConfigFile.Version([.. bytes, 32]));
+		Assert.AreNotEqual(Convert.ToHexString(SHA256.HashData(bytes)), ConfigFile.Version(bytes), "a plain hash would let a version be tested against guessed file content");
 	}
 
 	[TestMethod]

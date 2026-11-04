@@ -1,7 +1,11 @@
-# This action bumps the ArchiSteamFarm submodule to the latest stable release: both the reference in .gitmodules and the
-# commit the submodule points at, so the plugin is built against the release that the trimmed-ASF check downloads
-# It builds and tests the plugin against the new release first and pushes nothing when that fails, so a release that
-# needs corrections in the plugin leaves main as it was and shows up as a failed run instead
+# This action proposes bumping the ArchiSteamFarm submodule to the latest stable release, as a pull request: both the
+# reference in .gitmodules and the commit the submodule points at, so the plugin is built against the release that the
+# trimmed-ASF check downloads
+# It runs in two jobs, so that the code of an upstream release never runs where a token can write to this repository:
+# - verify has a read-only token. It fetches the release, builds and tests the plugin against it, and hands over only a
+#   version and a commit hash. A release that needs corrections in the plugin ends as a failed run here
+# - propose has the write token and runs no upstream code at all. It never even fetches the submodule: it records the
+#   verified commit hash in the index, commits to a new branch and opens a pull request, which a person merges
 # Note: If you'd like to change the default channel from stable to pre-releases, simply change RELEASE_TYPE
 name: Plugin-bump-asf-reference
 
@@ -17,22 +21,28 @@ env:
   DOTNET_SDK_VERSION: 10.0
   # You can specify your own credentials if you'd like to, simply change ARCHIBOT_GPG_PRIVATE_KEY and/or ARCHIBOT_GITHUB_TOKEN secrets here to the ones you want to use
   GPG_PRIVATE_KEY: ${{ secrets.ARCHIBOT_GPG_PRIVATE_KEY }} # Optional, if secret not provided, will skip signing commit with GPG key
-  PUSH_GITHUB_TOKEN: ${{ secrets.ARCHIBOT_GITHUB_TOKEN || secrets.GITHUB_TOKEN }} # Optional, if secret not provided, will use the default token
+  PUSH_GITHUB_TOKEN: ${{ secrets.ARCHIBOT_GITHUB_TOKEN || secrets.GITHUB_TOKEN }} # Optional, if secret not provided, will use the default token, which can open the pull request only if the repository allows GitHub Actions to create pull requests
   RELEASE_TYPE: stable # Recommended to choose one from: stable (latest ASF stable release), nodraft (latest ASF release, including pre-releases, but without drafts)
 
-permissions:
-  contents: write
+permissions: {}
 
 jobs:
-  main:
+  verify:
     runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+
+    outputs:
+      release: ${{ steps.bump.outputs.release }}
+      sha: ${{ steps.bump.outputs.sha }}
 
     steps:
     - name: Checkout code
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
         show-progress: false
-        token: ${{ env.PUSH_GITHUB_TOKEN }}
+        persist-credentials: false
 
     - name: Fetch latest ArchiSteamFarm release
       id: asf-release
@@ -47,6 +57,58 @@ jobs:
       with:
         dotnet-version: ${{ env.DOTNET_SDK_VERSION }}
 
+    - name: Build and test against the latest release, if it is newer
+      id: bump
+      env:
+        LATEST_ASF_RELEASE: ${{ steps.asf-release.outputs.release }}
+      shell: sh
+      run: |
+        set -eu
+
+        # The release name comes from upstream and ends up in a branch name and a commit: accept a plain version only
+        case "$LATEST_ASF_RELEASE" in
+            ""|*[!0-9.]*|.*|*.|*..*)
+                echo "::error::Unexpected ASF release name '$LATEST_ASF_RELEASE'"
+                exit 1
+                ;;
+        esac
+
+        current_version="$(git config -f .gitmodules submodule.ArchiSteamFarm.branch)"
+
+        if dpkg --compare-versions "$current_version" "ge" "$LATEST_ASF_RELEASE"; then
+            echo "ASF $current_version is already the latest, nothing to propose"
+            exit
+        fi
+
+        # Point the submodule at the release tag; a shallow fetch of that one tag is enough to build
+        git submodule update --init --depth 1 ArchiSteamFarm
+        git -C ArchiSteamFarm fetch --depth 1 origin "refs/tags/${LATEST_ASF_RELEASE}:refs/tags/${LATEST_ASF_RELEASE}"
+        git -C ArchiSteamFarm checkout -q "$LATEST_ASF_RELEASE"
+
+        # Propose nothing that does not build and pass the tests against the new release
+        dotnet build -c Release -p:ContinuousIntegrationBuild=true -p:UseAppHost=false --nologo
+        dotnet test ASFPluginConfig.Tests -c Release --no-build --nologo
+
+        echo "release=${LATEST_ASF_RELEASE}" >> "$GITHUB_OUTPUT"
+        echo "sha=$(git -C ArchiSteamFarm rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+  propose:
+    needs: verify
+    if: ${{ needs.verify.outputs.release != '' }}
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: write # To start the CI workflow on the new branch: a push made with the default token does not trigger it
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        show-progress: false
+        token: ${{ env.PUSH_GITHUB_TOKEN }}
+
     - name: Import GPG key for signing
       uses: crazy-max/ghaction-import-gpg@2dc316deee8e90f13e1a351ab510b4d5bc0c82cd # v7.0.0
       if: ${{ env.GPG_PRIVATE_KEY != null }}
@@ -55,33 +117,45 @@ jobs:
         git_user_signingkey: true
         git_commit_gpgsign: true
 
-    - name: Update ASF reference if needed
+    - name: Open a pull request for the bump
       env:
-        LATEST_ASF_RELEASE: ${{ steps.asf-release.outputs.release }}
+        RELEASE: ${{ needs.verify.outputs.release }}
+        SHA: ${{ needs.verify.outputs.sha }}
+        GH_TOKEN: ${{ env.PUSH_GITHUB_TOKEN }}
+        RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
       shell: sh
       run: |
         set -eu
 
-        current_version="$(git config -f .gitmodules submodule.ArchiSteamFarm.branch)"
+        # Both values were produced by the verify job from upstream data: check their shape before they reach git
+        case "$RELEASE" in
+            ""|*[!0-9.]*|.*|*.|*..*) echo "::error::Unexpected release '$RELEASE'"; exit 1 ;;
+        esac
 
-        if dpkg --compare-versions "$current_version" "ge" "$LATEST_ASF_RELEASE"; then
+        case "$SHA" in
+            *[!0-9a-f]*) echo "::error::Unexpected commit hash"; exit 1 ;;
+        esac
+
+        if [ "${#SHA}" -ne 40 ]; then
+            echo "::error::Unexpected commit hash"
+            exit 1
+        fi
+
+        branch="asf-bump/${RELEASE}"
+
+        # The schedule runs daily: one proposal per release, whether it is still open, merged or closed by a person
+        if git ls-remote --exit-code --heads origin "$branch" > /dev/null; then
+            echo "$branch exists already, nothing to propose"
             exit
         fi
 
         git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
-        git config -f .gitmodules submodule.ArchiSteamFarm.branch "$LATEST_ASF_RELEASE"
+        git config -f .gitmodules submodule.ArchiSteamFarm.branch "$RELEASE"
 
-        # Point the submodule at the release tag too; a shallow fetch of that one tag is enough to build
-        git submodule update --init --depth 1 ArchiSteamFarm
-        git -C ArchiSteamFarm fetch --depth 1 origin "refs/tags/${LATEST_ASF_RELEASE}:refs/tags/${LATEST_ASF_RELEASE}"
-        git -C ArchiSteamFarm checkout -q "$LATEST_ASF_RELEASE"
-
-        # Push nothing that does not build and pass the tests against the new release
-        dotnet build -c Release -p:ContinuousIntegrationBuild=true -p:UseAppHost=false --nologo
-        dotnet test ASFPluginConfig.Tests -c Release --no-build --nologo
-
-        git add -A ".gitmodules" ArchiSteamFarm
+        # The submodule is not checked out here and need not be: the index only needs the commit that verify built
+        git update-index --add --cacheinfo "160000,${SHA},ArchiSteamFarm"
+        git add .gitmodules
 
         if ! git config --get user.email > /dev/null; then
             git config --local user.email "action@github.com"
@@ -91,6 +165,18 @@ jobs:
             git config --local user.name "GitHub Action"
         fi
 
-        git commit -m "Automatic ArchiSteamFarm reference update to ${LATEST_ASF_RELEASE}"
+        git switch -c "$branch"
+        git commit -m "Automatic ArchiSteamFarm reference update to ${RELEASE}"
+        git push origin "$branch"
 
-        git push
+        base="$(gh repo view --json defaultBranchRef --jq .defaultBranchRef.name)"
+
+        if ! gh pr create --base "$base" --head "$branch" \
+            --title "Automatic ArchiSteamFarm reference update to ${RELEASE}" \
+            --body "Moves the ArchiSteamFarm submodule to ${RELEASE} (${SHA}). The plugin was built and tested against it in ${RUN_URL}; CI runs on this branch as for any pull request. Raising the ASF version raises the minimum ASF version the plugin runs on, so the README and the CHANGELOG may need a line."; then
+            echo "::error::Pushed $branch, but a pull request could not be opened. Either allow GitHub Actions to create pull requests (Settings > Actions > General), or add a token that can as the ARCHIBOT_GITHUB_TOKEN secret, or open the pull request from $branch by hand"
+            exit 1
+        fi
+
+        # A push made with the default token starts no workflow, so start CI on the branch; the check shows on the pull request
+        gh workflow run ci.yml --ref "$branch"

@@ -16,7 +16,7 @@ builds the form from it and writes the plugin's own key in `ASF.json` or `config
    ASF bans an address for an hour after 5 wrong passwords; the page stores the password for the browser tab only
    after ASF accepts it.
 
-Requires ASF 6.3.10.6 or later, with IPC enabled.
+Requires ASF 6.3.11.7 or later, with IPC enabled. A plugin references the exact ASF version it was built against and ASF refuses to load it on an older one, so each ASF bump raises this minimum.
 
 ## Use
 

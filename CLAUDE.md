@@ -8,7 +8,7 @@ host serves a page at `/plugin-config/` that builds forms from it and writes the
 
 Mirrors JustArchiNET's `ASF-PluginTemplate`, like `easly1989/ASF-Notifier`:
 
-- `ArchiSteamFarm/`: git submodule pinned to the ASF release tag we build against (6.3.10.6).
+- `ArchiSteamFarm/`: git submodule pinned to the ASF release tag we build against (6.3.11.7); `.github/workflows/bump-asf-reference.yml` moves the `.gitmodules` branch and the pointer together, after a green build and test.
 - `ASFPluginConfig/`: the plugin project. Assembly and plugin name `ASFPluginConfig`. `www/` is the static page ASF
   serves through `IWebInterface`.
 - `ASFPluginConfig.Tests/`: MSTest unit tests.
@@ -31,7 +31,7 @@ Requires the .NET 10 SDK. Clone with submodules.
 - Everything in the repo is English.
 - ASF code style: tabs, `.editorconfig` from the template. Warnings are errors in Release.
 - ASF's OS-specific builds are trimmed: use only what the trim check accepts. Plugin controllers and a plugin-defined
-  response type serialized by ASF's MVC were verified on trimmed 6.3.10.6 (ticket #2). `System.Text.Json` is trimmed
+  response type serialized by ASF's MVC were verified on trimmed ASF (ticket #2; the smoke test runs on the release we build against). `System.Text.Json` is trimmed
   unevenly: `JsonNode.ToJsonString`, `JsonElement.TryGetProperty(string)` and `JsonProperty.NameEquals` are gone, while
   `JsonNode.Parse`, its indexers and `JsonDocument.EnumerateObject` stay; `JsonProperty.WriteTo` is gone, so write
   `WritePropertyName` plus `JsonElement.WriteTo`. MVC too: no `[HttpPut]`, `NotFound(object)` or `Conflict(object)`; use

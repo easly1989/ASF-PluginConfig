@@ -17,6 +17,12 @@
 		</form>
 		<p id="status" role="status" aria-live="polite">Loading…</p>
 		<ul id="plugins" aria-label="Plugins" hidden></ul>
+		<section id="updates" aria-labelledby="updates-title" hidden>
+			<h2 id="updates-title">Plugin updates</h2>
+			<p class="hint" id="update-hint"></p>
+			<button type="button" id="update" aria-describedby="update-hint">Update plugins</button>
+			<p id="update-result" class="result" role="status"></p>
+		</section>
 	</main>
 	<script src="form.js"></script>
 	<script src="app.js"></script>

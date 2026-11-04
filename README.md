@@ -26,6 +26,7 @@ Each plugin that ships a schema gets a card. Open **Global settings**, or **Bot 
 - **No silent overwrite.** If `ASF.json` changed after you opened the form, for example from ASF-ui, the save is refused. Reopen the form and save again.
 - **ASF restarts to apply it.** ASF restarts after any change to `ASF.json`. If `AutoRestart` is off, it stops instead, and the page says so before you save.
 - **A bot save restarts only that bot.** Bot settings go into `config/<bot>.json`, and ASF restarts just that bot. The bot picker lists the bot config files ASF would load.
+- **Updating plugins.** **Update plugins** at the bottom asks ASF to update the plugins its `PluginsUpdateMode` and `PluginsUpdateList` settings allow, and shows ASF's answer. ASF downloads and installs them itself, then restarts if anything changed (or stops, when `AutoRestart` is off); this plugin installs nothing. By default `PluginsUpdateList` is empty, so nothing updates until you add the plugins' assembly names to it, for example `ASFPluginConfig`.
 - **Secrets stay on the server.** A secret field (`writeOnly` in the schema) is never sent to the page, only whether it is set. Leave it empty to keep the stored value, type a new one to replace it, or tick **Remove the stored value**.
 - **Saving needs `IPCPassword`, unless you opt out.** Saving is refused while `IPCPassword` is empty in `ASF.json`. If ASF's IPC is reachable only from your LAN or a VPN, you can allow saving without it (see below).
 

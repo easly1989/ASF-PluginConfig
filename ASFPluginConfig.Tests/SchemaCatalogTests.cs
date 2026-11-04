@@ -99,6 +99,26 @@ internal sealed class SchemaCatalogTests {
 	}
 
 	[TestMethod]
+	internal void AnAssemblyThatLoadsLaterMayCarryASchemaOnlyWhenItListsOne() {
+		Assert.IsTrue(SchemaCatalog.MayCarrySchema(new FakeAssembly("Late", "{ }")));
+		Assert.IsTrue(SchemaCatalog.MayCarrySchema(new ThrowingAssembly()), "an assembly that cannot be inspected fails closed");
+		Assert.IsFalse(SchemaCatalog.MayCarrySchema(typeof(object).Assembly));
+	}
+
+	[TestMethod]
+	internal void ACatalogMarkedIncompleteKeepsItsSchemasAndRefusesEveryKey() {
+		SchemaCatalog scanned = SchemaCatalog.Load([new FakeAssembly("Demo", """{ "configKey": "DemoNotifier", "global": { "type": "object" } }""")], static _ => { });
+
+		SchemaCatalog late = scanned.AsIncomplete();
+
+		Assert.IsFalse(scanned.Incomplete);
+		Assert.IsTrue(late.Incomplete);
+		Assert.HasCount(1, late.Schemas);
+		Assert.IsNotNull(RawKeys.Refusal("Other", late));
+		Assert.AreSame(late, late.AsIncomplete());
+	}
+
+	[TestMethod]
 	internal void KeepsTheFirstOfTwoSchemasForTheSameKey() {
 		List<string> errors = [];
 		const string json = """{ "configKey": "Same", "global": { "type": "object" } }""";

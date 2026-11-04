@@ -35,6 +35,23 @@ internal sealed class SchemaCatalog {
 
 	internal PluginSchema? Find(string configKey) => Schemas.FirstOrDefault(schema => schema.ConfigKey == configKey);
 
+	internal SchemaCatalog AsIncomplete() => Incomplete ? this : new SchemaCatalog(Schemas, RejectedKeys, true);
+
+	// Whether an assembly that loaded after a scan may hold a schema: it lists a schema resource, or it cannot be inspected
+	internal static bool MayCarrySchema(Assembly assembly) {
+		ArgumentNullException.ThrowIfNull(assembly);
+
+		if (assembly.IsDynamic) {
+			return false;
+		}
+
+		try {
+			return assembly.GetName().Name is { Length: > 0 } name && assembly.GetManifestResourceNames().Contains(name + ResourceSuffix, StringComparer.Ordinal);
+		} catch (Exception) {
+			return true;
+		}
+	}
+
 	internal static SchemaCatalog Load(IEnumerable<Assembly> assemblies, Action<string> logError) {
 		ArgumentNullException.ThrowIfNull(assemblies);
 		ArgumentNullException.ThrowIfNull(logError);

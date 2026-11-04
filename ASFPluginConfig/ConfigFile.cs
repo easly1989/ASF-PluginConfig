@@ -94,11 +94,17 @@ internal static class ConfigFile {
 			string temp = path + TempSuffix;
 			bool damaged = false;
 
-			// A file the owner locked down (600, for an IPCPassword) must not come back with the umask's mode. Windows has no such mode
-			UnixFileMode? mode = OperatingSystem.IsWindows() ? null : File.GetUnixFileMode(path);
-
 			try {
-				WriteDurably(temp, updated, mode);
+				// A file the owner locked down (600, for an IPCPassword) must not come back with the umask's mode. On Unix the
+				// temp file starts as a copy of the original: .NET creates it with the original's mode, before a byte of content
+				// is copied, and the rewrite below keeps it. A leftover temp file goes first, as it would keep its own mode. ASF's
+				// trimmed builds can neither read a mode nor set one on a handle, so there is no reading and applying it
+				if (!OperatingSystem.IsWindows()) {
+					TryDelete(temp);
+					File.Copy(path, temp);
+				}
+
+				WriteDurably(temp, updated);
 
 				try {
 					File.Move(temp, path, true);
@@ -161,15 +167,8 @@ internal static class ConfigFile {
 	}
 
 	// Like ASF's own writer: flushed to disk before it replaces anything
-	// mode, when given, is set before any content goes in, so the secrets are never in a file with a wider mode, not even
-	// briefly. A file written in place keeps the mode it has, so those callers pass none
-	private static void WriteDurably(string path, byte[] bytes, UnixFileMode? mode = null) {
+	private static void WriteDurably(string path, byte[] bytes) {
 		using FileStream stream = new(path, FileMode.Create, FileAccess.Write, FileShare.None);
-
-		if (!OperatingSystem.IsWindows() && (mode is { } unixMode)) {
-			File.SetUnixFileMode(stream.SafeFileHandle, unixMode);
-		}
-
 		stream.Write(bytes);
 		stream.Flush(true);
 	}

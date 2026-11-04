@@ -94,8 +94,11 @@ internal static class ConfigFile {
 			string temp = path + TempSuffix;
 			bool damaged = false;
 
+			// A file the owner locked down (600, for an IPCPassword) must not come back with the umask's mode. Windows has no such mode
+			UnixFileMode? mode = OperatingSystem.IsWindows() ? null : File.GetUnixFileMode(path);
+
 			try {
-				WriteDurably(temp, updated);
+				WriteDurably(temp, updated, mode);
 
 				try {
 					File.Move(temp, path, true);
@@ -158,8 +161,15 @@ internal static class ConfigFile {
 	}
 
 	// Like ASF's own writer: flushed to disk before it replaces anything
-	private static void WriteDurably(string path, byte[] bytes) {
+	// mode, when given, is set before any content goes in, so the secrets are never in a file with a wider mode, not even
+	// briefly. A file written in place keeps the mode it has, so those callers pass none
+	private static void WriteDurably(string path, byte[] bytes, UnixFileMode? mode = null) {
 		using FileStream stream = new(path, FileMode.Create, FileAccess.Write, FileShare.None);
+
+		if (!OperatingSystem.IsWindows() && (mode is { } unixMode)) {
+			File.SetUnixFileMode(stream.SafeFileHandle, unixMode);
+		}
+
 		stream.Write(bytes);
 		stream.Flush(true);
 	}

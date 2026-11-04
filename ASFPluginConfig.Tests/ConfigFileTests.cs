@@ -99,6 +99,23 @@ internal sealed class ConfigFileTests {
 	}
 
 	[TestMethod]
+	internal void AWriteKeepsTheFileMode() {
+		if (OperatingSystem.IsWindows()) {
+			Assert.Inconclusive("Windows files have no Unix mode");
+
+			return;
+		}
+
+		File.WriteAllText(Path, """{ "IPCPassword": "FAKE", "Demo": { "Url": "https://e.org" } }""");
+		File.SetUnixFileMode(Path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+
+		(ConfigFile.Outcome outcome, _) = ConfigFile.Write(Path, "Demo", Schema, Value("""{ "Url": "https://new.example" }"""), ConfigFile.Read(Path, "Demo").Version!);
+
+		Assert.AreEqual(ConfigFile.Outcome.Written, outcome);
+		Assert.AreEqual(UnixFileMode.UserRead | UnixFileMode.UserWrite, File.GetUnixFileMode(Path));
+	}
+
+	[TestMethod]
 	internal void AStaleVersionWritesNothing() {
 		File.WriteAllText(Path, """{ "Demo": { "Url": "https://e.org" } }""");
 		string version = ConfigFile.Read(Path, "Demo").Version!;

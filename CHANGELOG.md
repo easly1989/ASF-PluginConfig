@@ -17,8 +17,11 @@ First release. Requires ASF 6.3.11.7 or later.
 
 ### Security
 
-- Every endpoint is under `/Api/PluginConfig/`, so ASF's `IPCPassword` check applies. Saves and raw reads are refused (403) while `IPCPassword` is empty, unless the owner turns on `ASFPluginConfig.AllowWritesWithoutIPCPassword` for an IPC that only a trusted network can reach. ASF then logs a warning at start-up, and the page shows a banner.
+- Every endpoint is under `/Api/PluginConfig/`, so ASF's `IPCPassword` check applies. Saves are refused (403) while `IPCPassword` is empty, unless the owner turns on `ASFPluginConfig.AllowWritesWithoutIPCPassword` for an IPC that only a trusted network can reach. ASF then logs a warning at start-up, and the page shows a banner.
+- The raw editor shows values as stored, so reading them needs a real `IPCPassword`: the opt-in does not cover it, since a web page opened on the LAN can reach an IPC that ASF leaves open to any `Host` name (DNS rebinding). Without a password the card is hidden and the endpoints answer 403.
 - The raw editor refuses ASF's own settings and every key that has a schema, including one whose schema was rejected. If it cannot tell which keys are safe, it refuses all of them.
+- A version, which a save must send back, is a keyed hash with a random key per process, not a plain hash of the file, so it cannot be used to test guesses for short secrets in the file.
+- The page refuses to run inside a frame.
 - The page keeps the IPC password for the browser tab only, and only after ASF accepted it.
 
 ### Known issues

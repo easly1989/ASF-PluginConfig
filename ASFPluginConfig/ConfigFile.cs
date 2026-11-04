@@ -19,6 +19,10 @@ internal static class ConfigFile {
 	private static readonly JsonDocumentOptions ReadOptions = new() { AllowTrailingCommas = true, CommentHandling = JsonCommentHandling.Skip };
 	private static readonly Lock WriteGate = new();
 
+	// Versions only ever need to compare within this process, and a plain hash of the file would let anyone who can read a
+	// version test guesses for the short secrets in it (a 4-digit SteamParentalCode) offline
+	private static readonly byte[] VersionKey = RandomNumberGenerator.GetBytes(32);
+
 	internal enum Outcome : byte {
 		Written,
 		Missing,
@@ -125,7 +129,15 @@ internal static class ConfigFile {
 		}
 	}
 
-	internal static string Version(byte[] bytes) => Convert.ToHexString(SHA256.HashData(bytes));
+	// Keyed with a random per-process key, so a version means nothing outside the process that issued it; after an ASF
+	// restart a form loaded before it is stale, and its save gets the usual 409
+	internal static string Version(byte[] bytes) {
+		// The span overload, as ASF itself calls HMACSHA1: the byte[] one is trimmed out of its OS-specific builds
+		Span<byte> hash = stackalloc byte[HMACSHA256.HashSizeInBytes];
+		HMACSHA256.HashData(VersionKey, bytes, hash);
+
+		return Convert.ToHexString(hash);
+	}
 
 	private static bool TryRestore(string path, byte[] original) {
 		try {

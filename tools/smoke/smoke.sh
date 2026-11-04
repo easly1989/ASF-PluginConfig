@@ -8,8 +8,9 @@
 #   returned, only named as set, and a save that omits it keeps it in ASF.json; the raw editor lists and saves a key
 #   without a schema, and refuses ASF's own keys, keys with a schema and invalid JSON without writing;
 # - without an IPCPassword: a save is refused with 403, a raw one and every raw read too;
-# - without an IPCPassword but with AllowWritesWithoutIPCPassword on: ASF logs the warning, the host reports it, and a
-#   save that clears the secret is written;
+# - without an IPCPassword but with AllowWritesWithoutIPCPassword on: ASF logs the warning, the host reports it, a
+#   save that clears the secret is written, and raw reads are still refused;
+# - a version is not the plain SHA-256 of the file;
 # - the update button is on the page and ASF's own POST /Api/Plugins/Update answers its request;
 # - ASF logged no error or exception in any run.
 #
@@ -259,6 +260,12 @@ sleep 2
 stored=$(curl -fsS --max-time 20 -H "Authentication: ${password}" "${ipc}/Api/PluginConfig/Plugins/DemoNotifier/Global") || fail "reading the global value failed"
 version=$(printf '%s' "$stored" | sed -n 's/.*"Version":"\([0-9A-F]*\)".*/\1/p')
 [ -n "$version" ] || fail "no version in $stored"
+"$python" - "$work/config/ASF.json" "$version" <<'PY' || fail "the version is a plain SHA-256 of the file, so it can be tested against guessed content"
+import hashlib, sys
+plain = hashlib.sha256(open(sys.argv[1], "rb").read()).hexdigest().upper()
+assert plain != sys.argv[2], "version equals the plain hash"
+print("OK: the version is not the plain SHA-256 of the file")
+PY
 case "$stored" in
 	*'"ServerUrl":"https://old.example.org"'*) echo "OK: global value read" ;;
 	*) fail "unexpected global value: $stored" ;;
@@ -340,8 +347,12 @@ grep -q 'AllowWritesWithoutIPCPassword is on and IPCPassword is empty' "$work/as
 echo "OK: the opt-in warning is logged at start-up"
 curl -fsS --max-time 20 "${ipc}/Api/PluginConfig" | grep -q '"WritesWithoutPassword":true' || fail "the host does not report writes without a password"
 echo "OK: the host reports writes without a password"
-curl -fsS --max-time 20 "${ipc}/Api/PluginConfig/Raw/Global" | grep -q '"Result":\["OtherPlugin"\]' || fail "raw reads do not work with the opt-in on"
-echo "OK: raw reads work with the opt-in on"
+# The opt-in leaves protection to the network, which DNS rebinding can cross: unmasked values need a real password
+for path in Raw/Global Raw/Global/OtherPlugin Raw/Bots/smoke Raw/Bots/smoke/OtherPlugin; do
+	code=$(curl -sS --max-time 20 -o "$work/raw.json" -w '%{http_code}' "${ipc}/Api/PluginConfig/${path}")
+	[ "$code" = 403 ] || fail "a raw read of ${path} with the opt-in on and no IPCPassword answered $code, expected 403"
+done
+echo "OK: raw reads stay refused with the opt-in on"
 version=$(curl -fsS --max-time 20 "${ipc}/Api/PluginConfig/Plugins/DemoNotifier/Global" | sed -n 's/.*"Version":"\([0-9A-F]*\)".*/\1/p')
 code=$(save_global "" "{\"Value\":{\"ServerUrl\":\"https://optin.example.org\"},\"Version\":\"${version}\",\"ClearSecrets\":[\"AccessToken\"]}")
 [ "$code" = 200 ] || fail "a save with the opt-in on answered $code: $(cat "$work/save.json")"

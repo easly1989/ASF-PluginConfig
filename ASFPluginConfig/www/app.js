@@ -1,5 +1,13 @@
 "use strict";
 
+// Another site must not be able to frame this page and click through it for a visitor. Comparing the windows needs no
+// access to the framing page, so it works across origins; stopping here leaves the page with nothing to run
+if (window.top !== window.self) {
+	document.body.replaceChildren(Object.assign(document.createElement("p"), { textContent: "This page cannot be shown inside another page. Open it in its own tab." }));
+
+	throw new Error("framed");
+}
+
 // The page holds no data: everything comes from /Api, which ASF guards with IPCPassword
 const passwordKey = "asf-plugin-config.ipc-password";
 const status = document.getElementById("status");
@@ -500,8 +508,8 @@ function renderPlugins(plugins) {
 		pluginList.append(item);
 	}
 
-	// Its endpoints are refused while nothing protects the settings; the banner above already says so
-	if (host.WritesAllowed) {
+	// It shows values as stored, so its endpoints need a real IPCPassword; the opt-in does not open them
+	if (host.WritesAllowed && !host.WritesWithoutPassword) {
 		pluginList.append(rawCard());
 	}
 	pluginList.hidden = false;
@@ -530,7 +538,7 @@ async function load(typed) {
 
 	// Persistent on purpose: with the opt-in on, nothing but the network protects these settings
 	if (host.WritesWithoutPassword) {
-		banner.textContent = "Saving works without an IPC password (AllowWritesWithoutIPCPassword is on). Anyone who can reach ASF's IPC can change these settings, so keep it reachable only from your LAN or VPN.";
+		banner.textContent = "Saving works without an IPC password (AllowWritesWithoutIPCPassword is on). Anyone who can reach ASF's IPC can change these settings, so keep it reachable only from your LAN or VPN. The raw JSON editor stays off until IPCPassword is set, because it shows values as stored.";
 		banner.hidden = false;
 	} else if (!host.WritesAllowed) {
 		banner.textContent = "Saving is off: set IPCPassword in ASF.json, or turn on \"Allow saving without IPCPassword\" in this plugin's settings.";

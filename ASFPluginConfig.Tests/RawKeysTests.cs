@@ -30,6 +30,23 @@ internal sealed class RawKeysTests {
 	}
 
 	[TestMethod]
+	internal void ARejectedSchemasKeyIsRefused() {
+		SchemaCatalog catalog = SchemaCatalog.Load([new FakeAssembly("Rejected", """{ "configKey": "Secretive", "global": { "type": "object", "properties": { "Token": { "type": "string", "minimum": 1 } } } }""")], static _ => { });
+
+		string? refusal = RawKeys.Refusal("secretive", catalog);
+
+		Assert.IsNotNull(refusal);
+		Assert.Contains("rejected", refusal);
+		Assert.IsNull(RawKeys.Refusal("Other", catalog), "a catalog that knows every rejected key leaves the rest editable");
+	}
+
+	[TestMethod]
+	internal void AnIncompleteCatalogRefusesEveryKey() {
+		Assert.IsNotNull(RawKeys.Refusal("Other", SchemaCatalog.Failed));
+		Assert.IsEmpty(RawKeys.Editable(["Other", "ASFNotifier"], SchemaCatalog.Failed));
+	}
+
+	[TestMethod]
 	internal void AcceptsAPluginKeyWithoutASchema() => Assert.IsNull(RawKeys.Refusal("ASFNotifier", Catalog));
 
 	[TestMethod]

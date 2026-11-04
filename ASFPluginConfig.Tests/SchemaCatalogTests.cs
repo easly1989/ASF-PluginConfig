@@ -42,6 +42,63 @@ internal sealed class SchemaCatalogTests {
 	}
 
 	[TestMethod]
+	internal void ARejectedSchemaStillNamesItsKeyAsOffLimits() {
+		const string json = """{ "configKey": "Secretive", "global": { "type": "object", "properties": { "Token": { "type": "string", "writeOnly": true, "minimum": 1 } } } }""";
+
+		SchemaCatalog catalog = SchemaCatalog.Load([new FakeAssembly("Rejected", json)], static _ => { });
+
+		Assert.IsEmpty(catalog.Schemas);
+		Assert.IsTrue(catalog.RejectedKeys.Contains("secretive"), "the key is kept, whatever its case");
+		Assert.IsFalse(catalog.Incomplete, "the key is known, so the other keys stay editable");
+	}
+
+	[TestMethod]
+	[DataRow("{ not json")]
+	[DataRow("""{ "global": { "type": "object" } }""")]
+	[DataRow("""{ "configKey": "", "global": { "type": "object" } }""")]
+	[DataRow("""{ "configKey": 7, "global": { "type": "object" } }""")]
+	[DataRow("""{ "configKey": " Foo", "global": { "type": "object" } }""")]
+	[DataRow("""{ "configKey": "Foo ", "global": { "type": "object" } }""")]
+	[DataRow("""{ "configKey": "   ", "global": { "type": "object" } }""")]
+	internal void ASchemaWithoutAReadableKeyMakesTheCatalogIncomplete(string json) {
+		SchemaCatalog catalog = SchemaCatalog.Load([new FakeAssembly("Nameless", json)], static _ => { });
+
+		Assert.IsEmpty(catalog.Schemas);
+		Assert.IsEmpty(catalog.RejectedKeys);
+		Assert.IsTrue(catalog.Incomplete, "its secrets may sit under any key");
+	}
+
+	[TestMethod]
+	internal void AnAssemblyThatThrowsMakesTheCatalogIncomplete() => Assert.IsTrue(SchemaCatalog.Load([new ThrowingAssembly()], static _ => { }).Incomplete);
+
+	[TestMethod]
+	internal void AResourceThatCannotBeOpenedMakesTheCatalogIncomplete() {
+		List<string> errors = [];
+
+		SchemaCatalog catalog = SchemaCatalog.Load([new NoStreamAssembly("Damaged")], errors.Add);
+
+		Assert.IsTrue(catalog.Incomplete);
+		Assert.HasCount(1, errors);
+		Assert.Contains("Damaged", errors[0]);
+	}
+
+	[TestMethod]
+	internal void ASpacedKeyDoesNotHideTheRealOne() {
+		// " Foo" never becomes a rejected key, and the catalog turns incomplete, so Foo itself is not left editable
+		SchemaCatalog catalog = SchemaCatalog.Load([new FakeAssembly("Spaced", """{ "configKey": " Foo", "global": { "type": "object" } }""")], static _ => { });
+
+		Assert.IsNotNull(RawKeys.Refusal("Foo", catalog));
+		Assert.IsFalse(catalog.RejectedKeys.Contains(" Foo"));
+	}
+
+	[TestMethod]
+	internal void AGoodScanIsComplete() {
+		Assert.IsFalse(SchemaCatalog.Load([typeof(SchemaCatalogTests).Assembly], static _ => { }).Incomplete);
+		Assert.IsFalse(SchemaCatalog.Empty.Incomplete);
+		Assert.IsTrue(SchemaCatalog.Failed.Incomplete);
+	}
+
+	[TestMethod]
 	internal void KeepsTheFirstOfTwoSchemasForTheSameKey() {
 		List<string> errors = [];
 		const string json = """{ "configKey": "Same", "global": { "type": "object" } }""";

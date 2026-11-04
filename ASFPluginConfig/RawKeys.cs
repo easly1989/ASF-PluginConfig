@@ -14,6 +14,15 @@ internal static class RawKeys {
 			return "A config key needs a name";
 		}
 
+		// A schema that could not be read may guard any key, so the raw editor cannot tell which keys are safe to show
+		if (catalog.Incomplete) {
+			return "The raw editor is off: a plugin's config schema could not be read, so no key is known to be free of secrets. See ASF's log";
+		}
+
+		if (catalog.RejectedKeys.Contains(key)) {
+			return $"{key} has a config schema that ASF Plugin Config rejected; fix the schema to edit this key";
+		}
+
 		if (AsfKeys.Owned.Contains(key)) {
 			return $"{key} is one of ASF's own settings";
 		}

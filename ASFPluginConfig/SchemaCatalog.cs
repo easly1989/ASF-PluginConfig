@@ -4,6 +4,7 @@ using System.Collections.Immutable;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Text.Json;
 
 namespace ASFPluginConfig;
 
@@ -11,11 +12,26 @@ namespace ASFPluginConfig;
 internal sealed class SchemaCatalog {
 	internal const string ResourceSuffix = ".config.schema.json";
 
-	internal static SchemaCatalog Empty { get; } = new([]);
+	// A scan that found nothing
+	internal static SchemaCatalog Empty { get; } = new([], ImmutableHashSet<string>.Empty, false);
+
+	// No scan, or one that threw: nothing is known about which keys carry secrets
+	internal static SchemaCatalog Failed { get; } = new([], ImmutableHashSet<string>.Empty, true);
 
 	internal ImmutableArray<PluginSchema> Schemas { get; }
 
-	private SchemaCatalog(ImmutableArray<PluginSchema> schemas) => Schemas = schemas;
+	// Config keys of schemas that were rejected as invalid: their plugins still hold secrets under those keys, so a
+	// key here is as off limits to the raw editor as a key with a working schema
+	internal ImmutableHashSet<string> RejectedKeys { get; }
+
+	// Some schema or assembly could not be read and its key is unknown, so no key can be called free of secrets
+	internal bool Incomplete { get; }
+
+	private SchemaCatalog(ImmutableArray<PluginSchema> schemas, ImmutableHashSet<string> rejectedKeys, bool incomplete) {
+		Schemas = schemas;
+		RejectedKeys = rejectedKeys;
+		Incomplete = incomplete;
+	}
 
 	internal PluginSchema? Find(string configKey) => Schemas.FirstOrDefault(schema => schema.ConfigKey == configKey);
 
@@ -24,6 +40,8 @@ internal sealed class SchemaCatalog {
 		ArgumentNullException.ThrowIfNull(logError);
 
 		List<PluginSchema> schemas = [];
+		HashSet<string> rejected = new(StringComparer.OrdinalIgnoreCase);
+		bool incomplete = false;
 
 		// Sorted, so which of two plugins claiming one key wins does not depend on load order
 		foreach (Assembly assembly in assemblies.Where(static assembly => !assembly.IsDynamic).OrderBy(static assembly => assembly.FullName, StringComparer.Ordinal)) {
@@ -31,7 +49,7 @@ internal sealed class SchemaCatalog {
 
 			// One odd assembly or schema must never take the host down with it
 			try {
-				PluginSchema? schema = LoadOne(assembly, out name, logError);
+				PluginSchema? schema = LoadOne(assembly, out name, logError, rejected, ref incomplete);
 
 				if (schema == null) {
 					continue;
@@ -46,13 +64,29 @@ internal sealed class SchemaCatalog {
 				schemas.Add(schema);
 			} catch (Exception e) {
 				logError($"Config schema of {name} is ignored: {e.GetType().Name}: {e.Message}");
+
+				// It may have held a schema that guards secrets; there is no telling which key
+				incomplete = true;
 			}
 		}
 
-		return new SchemaCatalog([.. schemas.OrderBy(static schema => schema.Title, StringComparer.OrdinalIgnoreCase)]);
+		return new SchemaCatalog([.. schemas.OrderBy(static schema => schema.Title, StringComparer.OrdinalIgnoreCase)], rejected.ToImmutableHashSet(StringComparer.OrdinalIgnoreCase), incomplete);
 	}
 
-	private static PluginSchema? LoadOne(Assembly assembly, out string name, Action<string> logError) {
+	// The configKey of a schema that failed to parse, when its text still names one the way a valid schema must: non-blank
+	// and without surrounding spaces. Anything else could be a mistyped form of a key that is in use, which a plugin
+	// reads as typed or trimmed; such a schema names no key we can refuse, so the caller treats it as unreadable
+	private static string? KeyOf(string json) {
+		try {
+			using JsonDocument document = JsonDocument.Parse(json);
+
+			return JsonUtil.String(document.RootElement, "configKey") is { } key && !string.IsNullOrWhiteSpace(key) && (key.Trim() == key) ? key : null;
+		} catch (JsonException) {
+			return null;
+		}
+	}
+
+	private static PluginSchema? LoadOne(Assembly assembly, out string name, Action<string> logError, HashSet<string> rejected, ref bool incomplete) {
 		name = assembly.GetName().Name ?? "";
 
 		if (name.Length == 0) {
@@ -67,15 +101,26 @@ internal sealed class SchemaCatalog {
 
 		using Stream? stream = assembly.GetManifestResourceStream(resource);
 
+		// The resource is listed but cannot be opened: whatever it guards stays unknown
 		if (stream == null) {
+			logError($"Config schema of {name} cannot be read: its resource has no stream");
+			incomplete = true;
+
 			return null;
 		}
 
 		using StreamReader reader = new(stream);
-		PluginSchema? schema = PluginSchema.Parse(name, reader.ReadToEnd(), out string? error);
+		string json = reader.ReadToEnd();
+		PluginSchema? schema = PluginSchema.Parse(name, json, out string? error);
 
 		if (schema == null) {
 			logError($"Config schema of {name} is invalid and ignored: {error}");
+
+			if (KeyOf(json) is { } key) {
+				rejected.Add(key);
+			} else {
+				incomplete = true;
+			}
 		}
 
 		return schema;

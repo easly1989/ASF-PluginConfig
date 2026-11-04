@@ -147,12 +147,24 @@ public sealed class PluginConfigController : ArchiController {
 
 	private ObjectResult NoBot(string bot) => StatusCode((int) HttpStatusCode.NotFound, new GenericResponse(false, $"No bot config named {bot}"));
 
-	private ActionResult<GenericResponse> RawKeysOf(string path) => ConfigFile.Keys(path) is { } keys
-		? Ok(new GenericResponse<IReadOnlyList<string>>(RawKeys.Editable(keys, ASFPluginConfig.Catalog)))
-		: StatusCode((int) HttpStatusCode.InternalServerError, new GenericResponse(false, $"{Path.GetFileName(path)} cannot be read"));
+	// Raw values are unmasked, so reading them needs what writing needs: an IPCPassword, or the opt-in that leaves the
+	// protection to the network. Without it a request that ASF admits on loopback would see them
+	private ActionResult<GenericResponse> RawKeysOf(string path) {
+		if (!HostSettings.WritesAllowed) {
+			return RawRefused();
+		}
+
+		return ConfigFile.Keys(path) is { } keys
+			? Ok(new GenericResponse<IReadOnlyList<string>>(RawKeys.Editable(keys, ASFPluginConfig.Catalog)))
+			: StatusCode((int) HttpStatusCode.InternalServerError, new GenericResponse(false, $"{Path.GetFileName(path)} cannot be read"));
+	}
 
 	// Values are shown as stored: a plugin that wants its secrets hidden ships a schema, and its key is refused here
 	private ActionResult<GenericResponse> RawRead(string path, string key) {
+		if (!HostSettings.WritesAllowed) {
+			return RawRefused();
+		}
+
 		if (RawKeys.Refusal(key, ASFPluginConfig.Catalog) is { } refusal) {
 			return BadRequest(new GenericResponse(false, refusal));
 		}
@@ -181,6 +193,8 @@ public sealed class PluginConfigController : ArchiController {
 
 		return Answer(path, outcome, version);
 	}
+
+	private ObjectResult RawRefused() => StatusCode((int) HttpStatusCode.Forbidden, new GenericResponse(false, $"The raw editor shows values unmasked, so it needs IPCPassword set in ASF.json, or {HostSettings.OptInName} turned on"));
 
 	private ObjectResult WritesRefused() => StatusCode((int) HttpStatusCode.Forbidden, new GenericResponse(false, $"Saving needs IPCPassword set in ASF.json, or {HostSettings.OptInName} turned on"));
 

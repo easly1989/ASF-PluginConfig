@@ -95,6 +95,15 @@ internal static class ConfigFile {
 			bool damaged = false;
 
 			try {
+				// A file the owner locked down (600, for an IPCPassword) must not come back with the umask's mode. On Unix the
+				// temp file starts as a copy of the original: .NET creates it with the original's mode, before a byte of content
+				// is copied, and the rewrite below keeps it. A leftover temp file goes first, as it would keep its own mode. ASF's
+				// trimmed builds can neither read a mode nor set one on a handle, so there is no reading and applying it
+				if (!OperatingSystem.IsWindows()) {
+					TryDelete(temp);
+					File.Copy(path, temp);
+				}
+
 				WriteDurably(temp, updated);
 
 				try {

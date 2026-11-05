@@ -7,6 +7,7 @@ using ArchiSteamFarm;
 using ArchiSteamFarm.Core;
 using ArchiSteamFarm.IPC.Controllers.Api;
 using ArchiSteamFarm.IPC.Responses;
+using ArchiSteamFarm.Steam.Interaction;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 
@@ -15,9 +16,25 @@ namespace ASFPluginConfig;
 // Under /Api, so ASF's IPCPassword middleware guards it; ArchiController itself carries no [Authorize]
 [Route("Api/PluginConfig")]
 public sealed class PluginConfigController : ArchiController {
+	private readonly SchemaCatalog? CatalogOverride;
+	private readonly string? ConfigDirectoryOverride;
+	private readonly Action? RestartOverride;
+
+	private SchemaCatalog Catalog => CatalogOverride ?? ASFPluginConfig.Catalog;
+
 	// ASF runs with its home directory as the working directory
-	private static string ConfigDirectory => Path.GetFullPath(SharedInfo.ConfigDirectory);
-	private static string GlobalConfigPath => Path.Combine(ConfigDirectory, "ASF.json");
+	private string ConfigDirectory => ConfigDirectoryOverride ?? Path.GetFullPath(SharedInfo.ConfigDirectory);
+	private string GlobalConfigPath => Path.Combine(ConfigDirectory, "ASF.json");
+
+	// ASP.NET Core builds the controller through its only public constructor
+	public PluginConfigController() { }
+
+	// Tests: their own catalog and config directory, and a restart that only records itself
+	internal PluginConfigController(SchemaCatalog catalog, string configDirectory, Action restart) {
+		CatalogOverride = catalog;
+		ConfigDirectoryOverride = configDirectory;
+		RestartOverride = restart;
+	}
 
 	[EndpointSummary("Gets the name and version of the plugin-config host")]
 	[HttpGet]
@@ -27,28 +44,30 @@ public sealed class PluginConfigController : ArchiController {
 	[EndpointSummary("Gets every plugin that embeds a valid config schema")]
 	[HttpGet("Plugins")]
 	[ProducesResponseType<GenericResponse<IReadOnlyCollection<PluginSchema>>>((int) HttpStatusCode.OK)]
-	public ActionResult<GenericResponse<IReadOnlyCollection<PluginSchema>>> PluginsGet() => Ok(new GenericResponse<IReadOnlyCollection<PluginSchema>>(ASFPluginConfig.Catalog.Schemas));
+	public ActionResult<GenericResponse<IReadOnlyCollection<PluginSchema>>> PluginsGet() => Ok(new GenericResponse<IReadOnlyCollection<PluginSchema>>(Catalog.Schemas));
 
 	[EndpointSummary("Gets the bots that have a config file")]
 	[HttpGet("Bots")]
 	[ProducesResponseType<GenericResponse<IReadOnlyList<string>>>((int) HttpStatusCode.OK)]
 	public ActionResult<GenericResponse<IReadOnlyList<string>>> BotsGet() => Ok(new GenericResponse<IReadOnlyList<string>>(BotFiles.List(ConfigDirectory)));
 
-	[EndpointSummary("Gets a plugin's global value from ASF.json, with the version a save must send back")]
+	[EndpointSummary("Gets a plugin's global value, from ASF.json or the plugin's own file, with the version a save must send back")]
 	[HttpGet("Plugins/{configKey:required}/Global")]
 	[ProducesResponseType<GenericResponse<ConfigValue>>((int) HttpStatusCode.OK)]
 	[ProducesResponseType<GenericResponse>((int) HttpStatusCode.NotFound)]
 	public ActionResult<GenericResponse> GlobalGet(string configKey) {
 		ArgumentException.ThrowIfNullOrEmpty(configKey);
 
-		return ASFPluginConfig.Catalog.Find(configKey) is { Global: not null } schema
-			? Read(GlobalConfigPath, schema.ConfigKey, schema.Global.Value)
-			: StatusCode((int) HttpStatusCode.NotFound, new GenericResponse(false, $"No plugin has global settings under {configKey}"));
+		if (Catalog.Find(configKey) is not { Global: { } globalSchema } schema) {
+			return StatusCode((int) HttpStatusCode.NotFound, new GenericResponse(false, $"No plugin has global settings under {configKey}"));
+		}
+
+		return ValueStore.Global(schema, ConfigDirectory) is { } store ? Read(store, globalSchema) : FileRefused(schema);
 	}
 
-	[EndpointSummary("Saves a plugin's global value into ASF.json; ASF restarts to apply it")]
+	[EndpointSummary("Saves a plugin's global value, into ASF.json or the plugin's own file; Restart in the answer says what applies it")]
 	[HttpPost("Plugins/{configKey:required}/Global")]
-	[ProducesResponseType<GenericResponse<string>>((int) HttpStatusCode.OK)]
+	[ProducesResponseType<SaveResult>((int) HttpStatusCode.OK)]
 	[ProducesResponseType<GenericResponse<IReadOnlyList<FieldError>>>((int) HttpStatusCode.BadRequest)]
 	[ProducesResponseType<GenericResponse>((int) HttpStatusCode.Forbidden)]
 	[ProducesResponseType<GenericResponse>((int) HttpStatusCode.NotFound)]
@@ -57,12 +76,14 @@ public sealed class PluginConfigController : ArchiController {
 		ArgumentException.ThrowIfNullOrEmpty(configKey);
 		ArgumentNullException.ThrowIfNull(request);
 
-		return ASFPluginConfig.Catalog.Find(configKey) is { Global: { } globalSchema } schema
-			? Save(GlobalConfigPath, schema.ConfigKey, globalSchema, request)
-			: StatusCode((int) HttpStatusCode.NotFound, new GenericResponse(false, $"No plugin has global settings under {configKey}"));
+		if (Catalog.Find(configKey) is not { Global: { } globalSchema } schema) {
+			return StatusCode((int) HttpStatusCode.NotFound, new GenericResponse(false, $"No plugin has global settings under {configKey}"));
+		}
+
+		return ValueStore.Global(schema, ConfigDirectory) is { } store ? Save(store, globalSchema, request) : FileRefused(schema);
 	}
 
-	[EndpointSummary("Gets a plugin's value from a bot's config file, with the version a save must send back")]
+	[EndpointSummary("Gets a plugin's value for a bot, from the bot's config file or the plugin's own file, with the version a save must send back")]
 	[HttpGet("Plugins/{configKey:required}/Bots/{bot:required}")]
 	[ProducesResponseType<GenericResponse<ConfigValue>>((int) HttpStatusCode.OK)]
 	[ProducesResponseType<GenericResponse>((int) HttpStatusCode.NotFound)]
@@ -70,18 +91,20 @@ public sealed class PluginConfigController : ArchiController {
 		ArgumentException.ThrowIfNullOrEmpty(configKey);
 		ArgumentException.ThrowIfNullOrEmpty(bot);
 
-		if (ASFPluginConfig.Catalog.Find(configKey) is not { Bot: not null } schema) {
+		if (Catalog.Find(configKey) is not { Bot: { } botSchema } schema) {
 			return StatusCode((int) HttpStatusCode.NotFound, new GenericResponse(false, $"No plugin has bot settings under {configKey}"));
 		}
 
-		return BotFiles.PathOf(ConfigDirectory, bot) is { } path
-			? Read(path, schema.ConfigKey, schema.Bot.Value)
-			: StatusCode((int) HttpStatusCode.NotFound, new GenericResponse(false, $"No bot config named {bot}"));
+		if (BotFiles.PathOf(ConfigDirectory, bot) is not { } botPath) {
+			return NoBot(bot);
+		}
+
+		return ValueStore.OfBot(schema, ConfigDirectory, botPath) is { } store ? Read(store, botSchema) : FileRefused(schema);
 	}
 
-	[EndpointSummary("Saves a plugin's value into a bot's config file; ASF restarts that bot to apply it")]
+	[EndpointSummary("Saves a plugin's value for a bot, into the bot's config file or the plugin's own file; Restart in the answer says what applies it")]
 	[HttpPost("Plugins/{configKey:required}/Bots/{bot:required}")]
-	[ProducesResponseType<GenericResponse<string>>((int) HttpStatusCode.OK)]
+	[ProducesResponseType<SaveResult>((int) HttpStatusCode.OK)]
 	[ProducesResponseType<GenericResponse<IReadOnlyList<FieldError>>>((int) HttpStatusCode.BadRequest)]
 	[ProducesResponseType<GenericResponse>((int) HttpStatusCode.Forbidden)]
 	[ProducesResponseType<GenericResponse>((int) HttpStatusCode.NotFound)]
@@ -91,13 +114,15 @@ public sealed class PluginConfigController : ArchiController {
 		ArgumentException.ThrowIfNullOrEmpty(bot);
 		ArgumentNullException.ThrowIfNull(request);
 
-		if (ASFPluginConfig.Catalog.Find(configKey) is not { Bot: { } botSchema } schema) {
+		if (Catalog.Find(configKey) is not { Bot: { } botSchema } schema) {
 			return StatusCode((int) HttpStatusCode.NotFound, new GenericResponse(false, $"No plugin has bot settings under {configKey}"));
 		}
 
-		return BotFiles.PathOf(ConfigDirectory, bot) is { } path
-			? Save(path, schema.ConfigKey, botSchema, request)
-			: StatusCode((int) HttpStatusCode.NotFound, new GenericResponse(false, $"No bot config named {bot}"));
+		if (BotFiles.PathOf(ConfigDirectory, bot) is not { } botPath) {
+			return NoBot(bot);
+		}
+
+		return ValueStore.OfBot(schema, ConfigDirectory, botPath) is { } store ? Save(store, botSchema, request) : FileRefused(schema);
 	}
 
 	[EndpointSummary("Gets the keys in ASF.json the raw editor may edit: neither ASF's own nor a plugin's with a schema")]
@@ -113,11 +138,11 @@ public sealed class PluginConfigController : ArchiController {
 
 	[EndpointSummary("Saves one key's raw value into ASF.json (null removes the key); ASF restarts to apply it")]
 	[HttpPost("Raw/Global/{key:required}")]
-	[ProducesResponseType<GenericResponse<string>>((int) HttpStatusCode.OK)]
+	[ProducesResponseType<SaveResult>((int) HttpStatusCode.OK)]
 	[ProducesResponseType<GenericResponse>((int) HttpStatusCode.BadRequest)]
 	[ProducesResponseType<GenericResponse>((int) HttpStatusCode.Forbidden)]
 	[ProducesResponseType<GenericResponse>((int) HttpStatusCode.Conflict)]
-	public ActionResult<GenericResponse> RawGlobalPost(string key, [FromBody] ConfigWriteRequest request) => RawSave(GlobalConfigPath, key, request);
+	public ActionResult<GenericResponse> RawGlobalPost(string key, [FromBody] ConfigWriteRequest request) => RawSave(GlobalConfigPath, key, request, SaveResult.AsfRestart);
 
 	[EndpointSummary("Gets the keys in a bot's config file the raw editor may edit")]
 	[HttpGet("Raw/Bots/{bot:required}")]
@@ -134,7 +159,7 @@ public sealed class PluginConfigController : ArchiController {
 
 	[EndpointSummary("Saves one key's raw value into a bot's config file (null removes the key); ASF restarts that bot")]
 	[HttpPost("Raw/Bots/{bot:required}/{key:required}")]
-	[ProducesResponseType<GenericResponse<string>>((int) HttpStatusCode.OK)]
+	[ProducesResponseType<SaveResult>((int) HttpStatusCode.OK)]
 	[ProducesResponseType<GenericResponse>((int) HttpStatusCode.BadRequest)]
 	[ProducesResponseType<GenericResponse>((int) HttpStatusCode.Forbidden)]
 	[ProducesResponseType<GenericResponse>((int) HttpStatusCode.NotFound)]
@@ -142,8 +167,19 @@ public sealed class PluginConfigController : ArchiController {
 	public ActionResult<GenericResponse> RawBotPost(string bot, string key, [FromBody] ConfigWriteRequest request) {
 		ArgumentNullException.ThrowIfNull(request);
 
-		return BotFiles.PathOf(ConfigDirectory, bot) is { } path ? RawSave(path, key, request) : NoBot(bot);
+		return BotFiles.PathOf(ConfigDirectory, bot) is { } path ? RawSave(path, key, request, SaveResult.BotRestart) : NoBot(bot);
 	}
+
+	// What ASF itself does when ASF.json changes: restart when it may, otherwise exit and leave the start to a supervisor
+	private static void RestartAsf() {
+		if (HostInfo.Current.AutoRestart && Actions.Restart().Success) {
+			return;
+		}
+
+		Actions.Exit();
+	}
+
+	private ObjectResult FileRefused(PluginSchema schema) => StatusCode((int) HttpStatusCode.InternalServerError, new GenericResponse(false, $"The settings file of {schema.Title} cannot be used"));
 
 	private ObjectResult NoBot(string bot) => StatusCode((int) HttpStatusCode.NotFound, new GenericResponse(false, $"No bot config named {bot}"));
 
@@ -156,17 +192,18 @@ public sealed class PluginConfigController : ArchiController {
 		}
 
 		return ConfigFile.Keys(path) is { } keys
-			? Ok(new GenericResponse<IReadOnlyList<string>>(RawKeys.Editable(keys, ASFPluginConfig.Catalog)))
+			? Ok(new GenericResponse<IReadOnlyList<string>>(RawKeys.Editable(keys, Catalog)))
 			: StatusCode((int) HttpStatusCode.InternalServerError, new GenericResponse(false, $"{Path.GetFileName(path)} cannot be read"));
 	}
 
-	// Values are shown as stored: a plugin that wants its secrets hidden ships a schema, and its key is refused here
+	// Values are shown as stored: a plugin that wants its secrets hidden ships a schema, and its key is refused here.
+	// The raw editor only ever touches ASF.json and bot files, never a plugin's own file
 	private ActionResult<GenericResponse> RawRead(string path, string key) {
 		if (!HostSettings.HasIpcPassword) {
 			return RawRefused();
 		}
 
-		if (RawKeys.Refusal(key, ASFPluginConfig.Catalog) is { } refusal) {
+		if (RawKeys.Refusal(key, Catalog) is { } refusal) {
 			return BadRequest(new GenericResponse(false, refusal));
 		}
 
@@ -179,49 +216,46 @@ public sealed class PluginConfigController : ArchiController {
 		};
 	}
 
-	private ActionResult<GenericResponse> RawSave(string path, string key, ConfigWriteRequest request) {
+	private ActionResult<GenericResponse> RawSave(string path, string key, ConfigWriteRequest request, string restart) {
 		ArgumentNullException.ThrowIfNull(request);
 
 		if (!HostSettings.WritesAllowed) {
 			return WritesRefused();
 		}
 
-		if (RawKeys.Refusal(key, ASFPluginConfig.Catalog) is { } refusal) {
+		if (RawKeys.Refusal(key, Catalog) is { } refusal) {
 			return BadRequest(new GenericResponse(false, refusal));
 		}
 
 		(ConfigFile.Outcome outcome, string? version) = ConfigFile.Write(path, key, null, request.Value is { ValueKind: not JsonValueKind.Null } value ? value : null, request.Version);
 
-		return Answer(path, outcome, version);
+		return Answer(Path.GetFileName(path), outcome, version, restart);
 	}
 
 	private ObjectResult RawRefused() => StatusCode((int) HttpStatusCode.Forbidden, new GenericResponse(false, $"The raw editor shows values unmasked, so it needs IPCPassword set in ASF.json; {HostSettings.OptInName} does not cover it"));
 
 	private ObjectResult WritesRefused() => StatusCode((int) HttpStatusCode.Forbidden, new GenericResponse(false, $"Saving needs IPCPassword set in ASF.json, or {HostSettings.OptInName} turned on"));
 
-	private ActionResult<GenericResponse> Answer(string path, ConfigFile.Outcome outcome, string? version) {
-		string file = Path.GetFileName(path);
-
-		return outcome switch {
-			ConfigFile.Outcome.Written => Ok(new GenericResponse<string>(version)),
+	private ActionResult<GenericResponse> Answer(string file, ConfigFile.Outcome outcome, string? version, string restart) =>
+		outcome switch {
+			ConfigFile.Outcome.Written => Ok(new SaveResult(version!, restart)),
 			ConfigFile.Outcome.Missing => StatusCode((int) HttpStatusCode.NotFound, new GenericResponse(false, $"{file} does not exist")),
 			ConfigFile.Outcome.Stale => StatusCode((int) HttpStatusCode.Conflict, new GenericResponse(false, $"{file} changed since you loaded it; reload and try again")),
 			_ => StatusCode((int) HttpStatusCode.InternalServerError, new GenericResponse(false, $"{file} cannot be written ({outcome})"))
 		};
-	}
 
-	private ActionResult<GenericResponse> Read(string path, string configKey, JsonElement schema) {
-		ConfigFile.Snapshot snapshot = ConfigFile.Read(path, configKey);
+	private ActionResult<GenericResponse> Read(ValueStore store, JsonElement schema) {
+		ConfigFile.Snapshot snapshot = store.Read();
 		(JsonElement? masked, List<string> setSecrets) = Secrets.Mask(schema, snapshot.Value);
 
 		return snapshot.Outcome switch {
 			ConfigFile.Outcome.Written => Ok(new GenericResponse<ConfigValue>(new ConfigValue(masked, snapshot.Version!, setSecrets))),
-			ConfigFile.Outcome.Missing => StatusCode((int) HttpStatusCode.NotFound, new GenericResponse(false, $"{Path.GetFileName(path)} does not exist")),
-			_ => StatusCode((int) HttpStatusCode.InternalServerError, new GenericResponse(false, $"{Path.GetFileName(path)} cannot be read ({snapshot.Outcome})"))
+			ConfigFile.Outcome.Missing => StatusCode((int) HttpStatusCode.NotFound, new GenericResponse(false, $"{store.FileName} does not exist")),
+			_ => StatusCode((int) HttpStatusCode.InternalServerError, new GenericResponse(false, $"{store.FileName} cannot be read ({snapshot.Outcome})"))
 		};
 	}
 
-	private ActionResult<GenericResponse> Save(string path, string configKey, JsonElement schema, ConfigWriteRequest request) {
+	private ActionResult<GenericResponse> Save(ValueStore store, JsonElement schema, ConfigWriteRequest request) {
 		// An open IPC must not be able to rewrite config files, unless the owner opted in to leave that to the network
 		if (!HostSettings.WritesAllowed) {
 			return WritesRefused();
@@ -231,10 +265,10 @@ public sealed class PluginConfigController : ArchiController {
 
 		if (request.Value is { ValueKind: not JsonValueKind.Null } submitted) {
 			// Secrets the page never saw are kept from the stored value; that needs the stored value the page was shown
-			ConfigFile.Snapshot snapshot = ConfigFile.Read(path, configKey);
+			ConfigFile.Snapshot snapshot = store.Read();
 
 			if (snapshot.Outcome == ConfigFile.Outcome.Written && snapshot.Version != request.Version) {
-				return StatusCode((int) HttpStatusCode.Conflict, new GenericResponse(false, $"{Path.GetFileName(path)} changed since you loaded it; reload and try again"));
+				return StatusCode((int) HttpStatusCode.Conflict, new GenericResponse(false, $"{store.FileName} changed since you loaded it; reload and try again"));
 			}
 
 			value = Secrets.Merge(schema, snapshot.Value, submitted, request.ClearSecrets ?? []);
@@ -245,8 +279,14 @@ public sealed class PluginConfigController : ArchiController {
 			}
 		}
 
-		(ConfigFile.Outcome outcome, string? version) = ConfigFile.Write(path, configKey, schema, value, request.Version);
+		(ConfigFile.Outcome outcome, string? version) = store.Write(schema, value, request.Version);
 
-		return Answer(path, outcome, version);
+		if ((outcome == ConfigFile.Outcome.Written) && store.HostRestarts) {
+			// ASF's watcher ignores config/plugins, so the restart that applies the value is the host's to ask for
+			ASF.ArchiLogger.LogGenericInfo($"{store.FileName} saved; restarting ASF to apply it");
+			(RestartOverride ?? RestartAsf)();
+		}
+
+		return Answer(store.FileName, outcome, version, store.Restart);
 	}
 }

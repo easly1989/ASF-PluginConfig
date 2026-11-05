@@ -49,7 +49,7 @@ internal sealed class HostSettingsTests {
 		Assert.AreEqual(HostSettings.ConfigKey, catalog.Schemas[0].ConfigKey);
 	}
 
-	private static Dictionary<string, JsonElement> Settings(string json) {
+	internal static Dictionary<string, JsonElement> Settings(string json) {
 		Dictionary<string, JsonElement> settings = [];
 
 		foreach (JsonProperty property in SchemaValidatorTests.Parse(json).EnumerateObject()) {

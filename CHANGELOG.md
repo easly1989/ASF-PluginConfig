@@ -1,4 +1,4 @@
-# Changelog
+﻿# Changelog
 
 ## 1.1.0.0 - 2026-11-05
 
@@ -16,6 +16,19 @@ Adds a settings file per plugin, storage standard v1 ([#31](https://github.com/e
 - The file's path comes only from a loaded plugin's assembly name, which must be a plain file name of at most 100 characters; a symbolic link or reparse point at the file or at `config/plugins` is refused, not followed. A file with an unknown `formatVersion` is never rewritten.
 - The raw editor refuses the legacy `ASF.json` key of a plugin with file storage, and never touches plugin files.
 - A new plugin file gets the default mode; the README tells operators to pre-create a file that will hold secrets with the mode they want. An existing file keeps its mode.
+
+## 1.0.2.0 - 2026-11-05
+
+A new look for the `/plugin-config/` page. The API, the saved files and the security properties are unchanged. Requires ASF 6.3.11.7 or later.
+
+### Changed
+
+- The page has a new layout: a side list of plugins (a row of chips on a phone), a card per plugin with a monogram tile and chips for the settings it offers, a header with the plugin version and whether saving is on, and forms in two columns on wide screens. Checkboxes are drawn as switches, and a secret field shows whether a value is stored. The page still uses system fonts only and makes no request outside the host.
+
+### Added
+
+- A plugin shows a dot in the side list while its form holds unsaved edits, and the browser asks before the page is closed or reloaded with such edits.
+- **Discard changes** in the sticky save bar reloads the form from the host.
 
 ## 1.0.1.0 - 2026-11-04
 

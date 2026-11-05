@@ -9,7 +9,7 @@ It edits global and per-bot settings, keeps secrets on the server, edits the key
 JSON, and has a button that asks ASF to update plugins. See the [changelog](CHANGELOG.md) and the
 [design](https://github.com/easly1989/ASF-PluginConfig/issues/1).
 
-<img src="https://github.com/easly1989/ASF-PluginConfig/blob/c361d19338361fc310c44ed726a9d7ed8c229bd4/1.0.0.0/plugins-desktop.png?raw=true" alt="The page, listing one plugin with its global and bot settings, this plugin's own settings, the raw JSON card and the update button" width="560">
+<img src="https://github.com/easly1989/ASF-PluginConfig/blob/f15bcca27d63e3500dbe0f5be971ada8bcdb603e/32/after-desktop-dark.png?raw=true" alt="The page, with the plugin list on the left and a plugin's global settings form open, with a pending edit marked in the list" width="560">
 
 ## Install
 

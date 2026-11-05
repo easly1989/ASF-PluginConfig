@@ -1,4 +1,4 @@
-﻿<Project>
+<Project>
 	<Import Project="ArchiSteamFarm/Directory.Build.props" />
 
 	<PropertyGroup>
@@ -10,7 +10,7 @@
 		<ApplicationIcon />
 		<Authors>easly1989</Authors>
 		<Company>$(Authors)</Company>
-		<Copyright>Copyright Â© $([System.DateTime]::UtcNow.Year) $(Company)</Copyright>
+		<Copyright>Copyright © $([System.DateTime]::UtcNow.Year) $(Company)</Copyright>
 		<Description>ArchiSteamFarm plugin: one page to edit the configs of installed plugins, built from each plugin's embedded JSON Schema.</Description>
 		<PackageIcon />
 		<PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>

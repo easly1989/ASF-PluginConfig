@@ -40,6 +40,17 @@ internal sealed class RawKeysTests {
 		Assert.IsNull(RawKeys.Refusal("Other", catalog), "a catalog that knows every rejected key leaves the rest editable");
 	}
 
+	// Its key in ASF.json is the plugin's legacy source and may still hold a secret the plugin's form would mask
+	[TestMethod]
+	internal void AFileStoragePluginsLegacyKeyIsRefused() {
+		SchemaCatalog catalog = SchemaCatalog.Load([new FakeAssembly("FileDemo", """{ "configKey": "FileNotifier", "storage": "file", "formatVersion": 1, "global": { "type": "object" } }""")], static _ => { });
+
+		string? refusal = RawKeys.Refusal("FileNotifier", catalog);
+
+		Assert.IsNotNull(refusal);
+		Assert.Contains("its own form", refusal);
+	}
+
 	[TestMethod]
 	internal void AnIncompleteCatalogRefusesEveryKey() {
 		Assert.IsNotNull(RawKeys.Refusal("Other", SchemaCatalog.Failed));

@@ -119,6 +119,14 @@ internal sealed class SchemaCatalogTests {
 	}
 
 	[TestMethod]
+	internal void ALateAssemblyIsFoundEvenWhenTheCountsMatch() {
+		FakeAssembly scanned = new("Scanned", "{ }");
+
+		// One assembly was collected and a schema carrier took its place: two known, two loaded
+		Assert.IsTrue(SchemaCatalog.AnyNewSchemaCarrier([scanned, new FakeAssembly("Late", "{ }")], new HashSet<Assembly> { scanned, new FakeAssembly("Gone", "{ }") }));
+	}
+
+	[TestMethod]
 	internal void ACatalogMarkedIncompleteKeepsItsSchemasAndRefusesEveryKey() {
 		SchemaCatalog scanned = SchemaCatalog.Load([new FakeAssembly("Demo", """{ "configKey": "DemoNotifier", "global": { "type": "object" } }""")], static _ => { });
 

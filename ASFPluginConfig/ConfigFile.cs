@@ -121,13 +121,18 @@ internal static class ConfigFile {
 			// file gets the umask's mode
 			if (original == null) {
 				Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-				TryDelete(temp);
-			} else if (!OperatingSystem.IsWindows()) {
-				TryDelete(temp);
+			}
+
+			TryDelete(temp);
+
+			bool copied = (original != null) && !OperatingSystem.IsWindows();
+
+			if (copied) {
 				File.Copy(path, temp);
 			}
 
-			WriteDurably(temp, updated);
+			// CreateNew where there is no copy to truncate: it fails rather than follow a link planted at the temp path
+			WriteDurably(temp, updated, copied ? FileMode.Create : FileMode.CreateNew);
 
 			// The slow part, the flush to disk, is behind us: look once more for a write by someone else while it ran, as
 			// the last step before the swap. Only the instant between this read and the move stays open, and nothing in
@@ -213,8 +218,8 @@ internal static class ConfigFile {
 	}
 
 	// Like ASF's own writer: flushed to disk before it replaces anything
-	private static void WriteDurably(string path, byte[] bytes) {
-		using FileStream stream = new(path, FileMode.Create, FileAccess.Write, FileShare.None);
+	private static void WriteDurably(string path, byte[] bytes, FileMode mode = FileMode.Create) {
+		using FileStream stream = new(path, mode, FileAccess.Write, FileShare.None);
 		stream.Write(bytes);
 		stream.Flush(true);
 	}

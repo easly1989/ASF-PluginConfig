@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.IO;
 using System.Text.Json;
 using ArchiSteamFarm.Core;
@@ -12,6 +13,8 @@ internal static class PluginFile {
 	internal const int FormatVersion = 1;
 
 	private const int MaxNameLength = 100;
+
+	private static readonly ConcurrentDictionary<string, string> Warned = new(StringComparer.Ordinal);
 
 	// ^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$, spelled out: a Regex $ would also accept a trailing newline
 	internal static bool IsSafeName(string? name) {
@@ -66,8 +69,10 @@ internal static class PluginFile {
 		}
 
 		using (document) {
-			if (!KnownLayout(path, document.RootElement)) {
-				return new ConfigFile.Snapshot(ConfigFile.Outcome.Unreadable, null, ConfigFile.Version(bytes));
+			string version = ConfigFile.Version(bytes);
+
+			if (!KnownLayout(path, document.RootElement, version)) {
+				return new ConfigFile.Snapshot(ConfigFile.Outcome.Unreadable, null, version);
 			}
 
 			JsonElement? value = bot == null ? JsonUtil.Property(document.RootElement, "global") : JsonUtil.Property(document.RootElement, "bots") is { } bots ? JsonUtil.Property(bots, bot) : null;
@@ -95,10 +100,15 @@ internal static class PluginFile {
 	private static bool IsLink(FileSystemInfo info) => info.LinkTarget != null;
 
 	// A file written by a newer host, or by hand into another shape, is never rewritten: a rewrite could lose what it holds
-	private static bool KnownLayout(string path, JsonElement root) {
+	// A read is unauthenticated, so its warning is logged once per file version; a save (no version) always logs
+	private static bool KnownLayout(string path, JsonElement root, string? fileVersion = null) {
 		bool known = JsonUtil.Property(root, "formatVersion") is { ValueKind: JsonValueKind.Number } version && (version.GetDouble() == FormatVersion) && JsonUtil.Property(root, "bots") is null or { ValueKind: JsonValueKind.Object };
 
-		if (!known) {
+		if (!known && ((fileVersion == null) || !Warned.TryGetValue(path, out string? last) || (last != fileVersion))) {
+			if (fileVersion != null) {
+				Warned[path] = fileVersion;
+			}
+
 			ASF.ArchiLogger.LogGenericWarning($"{Path.GetFileName(path)} is left as it is: it needs \"formatVersion\": {FormatVersion} and \"bots\", if present, must be an object");
 		}
 

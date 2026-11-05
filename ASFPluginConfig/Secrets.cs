@@ -71,7 +71,13 @@ internal static class Secrets {
 		foreach (JsonProperty property in value.EnumerateObject()) {
 			JsonElement? child = JsonUtil.Property(properties.Value, property.Name);
 
-			if (child is { } childSchema && IsSecret(childSchema)) {
+			// A property the schema does not declare could hold a secret the host cannot recognise, so it is not returned; a
+			// save still carries it over
+			if (child is not { } childSchema) {
+				continue;
+			}
+
+			if (IsSecret(childSchema)) {
 				// A stored null means unset, as everywhere else in ASF's configs
 				if (property.Value.ValueKind != JsonValueKind.Null) {
 					set.Add(Join(path, property.Name));

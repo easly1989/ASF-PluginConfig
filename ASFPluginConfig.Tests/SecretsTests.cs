@@ -32,7 +32,7 @@ internal sealed class SecretsTests {
 		Assert.AreEqual("Token,Matrix.Password", string.Join(",", set));
 		Assert.AreEqual("https://e.org", JsonUtil.String(masked.Value, "Url"));
 		Assert.AreEqual("!r", JsonUtil.String(JsonUtil.Property(masked.Value, "Matrix")!.Value, "Room"));
-		Assert.AreEqual("1", JsonUtil.Property(masked.Value, "Legacy")?.GetRawText());
+		Assert.IsNull(JsonUtil.Property(masked.Value, "Legacy"));
 	}
 
 	[TestMethod]

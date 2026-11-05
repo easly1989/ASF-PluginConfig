@@ -11,7 +11,12 @@ namespace ASFPluginConfig;
 
 // One plugin's config schema: the supported JSON Schema subset, documented in the README
 public sealed class PluginSchema {
-	private static readonly FrozenSet<string> RootKeywords = new[] { "$schema", "title", "description", "configKey", "global", "bot" }.ToFrozenSet(StringComparer.Ordinal);
+	internal const string AsfJsonStorage = "asf-json";
+	internal const string FileStorage = "file";
+	internal const string LiveReload = "live";
+	internal const string RestartReload = "restart";
+
+	private static readonly FrozenSet<string> RootKeywords = new[] { "$schema", "title", "description", "configKey", "storage", "formatVersion", "reload", "global", "bot" }.ToFrozenSet(StringComparer.Ordinal);
 	private static readonly FrozenSet<string> Keywords = new[] { "type", "title", "description", "default", "enum", "minimum", "maximum", "format", "writeOnly", "properties", "required", "items" }.ToFrozenSet(StringComparer.Ordinal);
 	private static readonly FrozenSet<string> PrimitiveTypes = new[] { "string", "integer", "number", "boolean" }.ToFrozenSet(StringComparer.Ordinal);
 
@@ -30,14 +35,27 @@ public sealed class PluginSchema {
 	[JsonInclude]
 	public JsonElement? Global { get; private init; }
 
+	// What follows a save: "restart" (ASF restarts, or for an asf-json bot value only that bot) or "live" (the plugin
+	// picks the change up itself)
+	[JsonInclude]
+	public string Reload { get; private init; }
+
+	// Where the values live: "asf-json" (a key in ASF.json and the bot files) or "file" (config/plugins/<Assembly>.json)
+	[JsonInclude]
+	public string Storage { get; private init; }
+
 	[JsonInclude]
 	public string Title { get; private init; }
 
-	private PluginSchema(string assembly, string configKey, string title, string? description, JsonElement? global, JsonElement? bot) {
+	internal bool InPluginFile => Storage == FileStorage;
+
+	private PluginSchema(string assembly, string configKey, string title, string? description, string storage, string reload, JsonElement? global, JsonElement? bot) {
 		Assembly = assembly;
 		ConfigKey = configKey;
 		Title = title;
 		Description = description;
+		Storage = storage;
+		Reload = reload;
 		Global = global;
 		Bot = bot;
 	}
@@ -97,6 +115,12 @@ public sealed class PluginSchema {
 			return null;
 		}
 
+		error = CheckStorage(document, assembly, out string storage, out string reload);
+
+		if (error != null) {
+			return null;
+		}
+
 		JsonNode? global = document["global"];
 		JsonNode? bot = document["bot"];
 
@@ -118,7 +142,50 @@ public sealed class PluginSchema {
 		// JsonNode.ToJsonString is trimmed out of ASF's OS-specific builds, so the elements come from a JsonDocument
 		using JsonDocument parsed = JsonDocument.Parse(json);
 
-		return new PluginSchema(assembly, configKey, string.IsNullOrWhiteSpace(title) ? configKey : title, description, Element(parsed, "global"), Element(parsed, "bot"));
+		return new PluginSchema(assembly, configKey, string.IsNullOrWhiteSpace(title) ? configKey : title, description, storage, reload, Element(parsed, "global"), Element(parsed, "bot"));
+	}
+
+	// The storage keys (README, "Storage"): file storage needs a formatVersion this host knows and an assembly name that
+	// is safe as a file name, since the file is named after it
+	private static string? CheckStorage(JsonObject document, string assembly, out string storage, out string reload) {
+		storage = AsfJsonStorage;
+		reload = RestartReload;
+
+		if (document.ContainsKey("storage")) {
+			if (!TryGetString(document, "storage", out string? declared) || declared is not (AsfJsonStorage or FileStorage)) {
+				return $"storage must be \"{AsfJsonStorage}\" or \"{FileStorage}\"";
+			}
+
+			storage = declared;
+		}
+
+		if (storage != FileStorage) {
+			foreach (string keyword in (string[]) ["formatVersion", "reload"]) {
+				if (document.ContainsKey(keyword)) {
+					return $"{keyword} applies only to \"storage\": \"{FileStorage}\"";
+				}
+			}
+
+			return null;
+		}
+
+		if (document["formatVersion"] is not { } version || (version.GetValueKind() != JsonValueKind.Number)) {
+			return $"\"storage\": \"{FileStorage}\" needs \"formatVersion\": {PluginFile.FormatVersion}";
+		}
+
+		if (version.GetValue<double>() != PluginFile.FormatVersion) {
+			return $"unknown formatVersion; this host knows {PluginFile.FormatVersion}";
+		}
+
+		if (document.ContainsKey("reload")) {
+			if (!TryGetString(document, "reload", out string? declared) || declared is not (RestartReload or LiveReload)) {
+				return $"reload must be \"{RestartReload}\" or \"{LiveReload}\"";
+			}
+
+			reload = declared;
+		}
+
+		return PluginFile.IsSafeName(assembly) ? null : $"the assembly name {assembly} cannot name a settings file, so \"storage\": \"{FileStorage}\" is refused";
 	}
 
 	private static string? Check(JsonNode node, string path) {

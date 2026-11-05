@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.1.0.0 - 2026-11-05
+
+Adds a settings file per plugin, storage standard v1 ([#31](https://github.com/easly1989/ASF-PluginConfig/issues/31)). Requires ASF 6.3.11.7 or later.
+
+### Added
+
+- A plugin can keep its settings in `config/plugins/<AssemblyName>.json` instead of `ASF.json` and the bot files, by declaring `"storage": "file"` and `"formatVersion": 1` in its schema. The file holds `{ "formatVersion": 1, "global": {}, "bots": {} }`; the first save creates it. Plugins without these keys work exactly as before. The README has the contract and a reader to copy.
+- `"reload": "restart"` (the default for file storage) makes the host restart ASF after a save, or stop it when `AutoRestart` is off, since ASF does not watch that file; with file storage a bot save restarts all of ASF. `"reload": "live"` restarts nothing: the plugin applies its file itself.
+- Every save's answer now carries `Restart`: `"asf"`, `"bot"` or `"none"`, telling the page what happens next. The plugin list gives each plugin's `Storage` and `Reload`.
+
+### Security
+
+- Secrets in a plugin file are out of reach of ASF's `GET /Api/ASF`, which returns `ASF.json` as stored; `writeOnly` fields are masked as everywhere.
+- The file's path comes only from a loaded plugin's assembly name, which must be a plain file name of at most 100 characters; a symbolic link or junction at the file or at `config/plugins` is refused, not followed. A file with an unknown `formatVersion` is never rewritten.
+- The raw editor refuses the legacy `ASF.json` key of a plugin with file storage, and never touches plugin files.
+- A read does not return a stored property the schema does not declare, since the host cannot tell whether it is a secret; a save keeps it. A plugin file with an unknown format is warned about once per file version on reads.
+- The temp file of a save is created with `CreateNew` after a leftover one is deleted, on every OS, so a link planted at its path is not followed.
+- A new plugin file gets the default mode; the README tells operators to pre-create a file that will hold secrets with the mode they want. An existing file keeps its mode.
+
 ## 1.0.2.0 - 2026-11-05
 
 A new look for the `/plugin-config/` page. The API, the saved files and the security properties are unchanged. Requires ASF 6.3.11.7 or later.

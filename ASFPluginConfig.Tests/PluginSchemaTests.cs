@@ -90,8 +90,65 @@ internal sealed class PluginSchemaTests {
 		("""{ "configKey": "Demo", "global": { "type": "object", "properties": { "A": { "type": "integer", "minimum": null } } } }""", "minimum must be a number"),
 		("""{ "configKey": "Demo", "global": { "type": "object", "properties": { "A": { "type": "string", "title": 5 } } } }""", "title must be a string"),
 		("""{ "configKey": "Demo", "title": 5, "global": { "type": "object" } }""", "title must be a string"),
-		("""{ "configKey": "Demo", "global": { "type": "object", "properties": { "A": { "type": "array" } } } }""", "an array needs items")
+		("""{ "configKey": "Demo", "global": { "type": "object", "properties": { "A": { "type": "array" } } } }""", "an array needs items"),
+		("""{ "configKey": "Demo", "storage": "disk", "global": { "type": "object" } }""", "storage must be"),
+		("""{ "configKey": "Demo", "storage": null, "global": { "type": "object" } }""", "storage must be"),
+		("""{ "configKey": "Demo", "storage": "file", "global": { "type": "object" } }""", "needs \"formatVersion\": 1"),
+		("""{ "configKey": "Demo", "storage": "file", "formatVersion": "1", "global": { "type": "object" } }""", "needs \"formatVersion\": 1"),
+		("""{ "configKey": "Demo", "storage": "file", "formatVersion": 2, "global": { "type": "object" } }""", "unknown formatVersion"),
+		("""{ "configKey": "Demo", "storage": "file", "formatVersion": 1, "reload": "sometimes", "global": { "type": "object" } }""", "reload must be"),
+		("""{ "configKey": "Demo", "formatVersion": 1, "global": { "type": "object" } }""", "formatVersion applies only"),
+		("""{ "configKey": "Demo", "storage": "asf-json", "reload": "live", "global": { "type": "object" } }""", "reload applies only")
 	}.Select(static test => new object[] { test.Json, test.ErrorPart });
+
+	[TestMethod]
+	internal void StorageDefaultsToAsfJsonWithRestart() {
+		PluginSchema? schema = PluginSchema.Parse("DemoPlugin", Valid, out _);
+
+		Assert.IsNotNull(schema);
+		Assert.AreEqual("asf-json", schema.Storage);
+		Assert.AreEqual("restart", schema.Reload);
+	}
+
+	[TestMethod]
+	[DataRow("", "restart")]
+	[DataRow(""", "reload": "restart" """, "restart")]
+	[DataRow(""", "reload": "live" """, "live")]
+	internal void ParsesFileStorage(string reloadKey, string reload) {
+		PluginSchema? schema = PluginSchema.Parse("My.Plugin_2-x", $$"""{ "configKey": "Demo", "storage": "file", "formatVersion": 1{{reloadKey}}, "global": { "type": "object" } }""", out string? error);
+
+		Assert.IsNull(error);
+		Assert.IsNotNull(schema);
+		Assert.AreEqual("file", schema.Storage);
+		Assert.AreEqual(reload, schema.Reload);
+	}
+
+	// The file is named after the assembly, so file storage needs a name that is safe as one
+	[TestMethod]
+	[DataRow("../Evil")]
+	[DataRow("..")]
+	[DataRow("a/b")]
+	[DataRow("a\\b")]
+	[DataRow("C:Evil")]
+	[DataRow(".hidden")]
+	[DataRow("-dash")]
+	[DataRow("Evil Plugin")]
+	[DataRow("Evil\n")]
+	[DataRow("Ünicode")]
+	internal void FileStorageRefusesAnAssemblyNameThatIsNoSafeFileName(string assembly) {
+		PluginSchema? schema = PluginSchema.Parse(assembly, """{ "configKey": "Demo", "storage": "file", "formatVersion": 1, "global": { "type": "object" } }""", out string? error);
+
+		Assert.IsNull(schema);
+		Assert.IsNotNull(error);
+		Assert.Contains("cannot name a settings file", error);
+		Assert.IsNotNull(PluginSchema.Parse(assembly, """{ "configKey": "Demo", "global": { "type": "object" } }""", out _), "asf-json storage never makes a path of the name");
+	}
+
+	[TestMethod]
+	internal void AnAssemblyNameOfMoreThanAHundredCharactersIsRefused() {
+		Assert.IsTrue(PluginFile.IsSafeName(new string('a', 100)));
+		Assert.IsFalse(PluginFile.IsSafeName(new string('a', 101)));
+	}
 
 	[TestMethod]
 	[DynamicData(nameof(InvalidSchemas))]

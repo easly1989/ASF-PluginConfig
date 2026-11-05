@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using ArchiSteamFarm.IPC.Responses;
 
 namespace ASFPluginConfig;
 
@@ -36,6 +37,29 @@ public sealed class RawValue {
 	internal RawValue(string? text, string version) {
 		Text = text;
 		Version = version;
+	}
+}
+
+// A successful save: Result is the new version, as GenericResponse<string> had it; Restart says what applies the change
+public sealed class SaveResult : GenericResponse {
+	// ASF restarts (or stops, when AutoRestart is off)
+	internal const string AsfRestart = "asf";
+
+	// ASF restarts only the bot whose config file changed
+	internal const string BotRestart = "bot";
+
+	// Nothing restarts: the plugin picks the change up itself (storage "file" with reload "live")
+	internal const string NoRestart = "none";
+
+	[JsonInclude]
+	public string Restart { get; private init; }
+
+	[JsonInclude]
+	public string Result { get; private init; }
+
+	internal SaveResult(string version, string restart) : base(true) {
+		Result = version;
+		Restart = restart;
 	}
 }
 

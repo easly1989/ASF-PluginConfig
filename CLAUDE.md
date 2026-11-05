@@ -56,3 +56,7 @@ GitHub Issues on `easly1989/ASF-PluginConfig`. See `docs/agents/issue-tracker.md
 ### Domain docs
 
 Single-context. See `docs/agents/domain.md`.
+
+### Token tools
+
+CBM: call `index_repository` once, then `search_graph` / `trace_path` before reading files.

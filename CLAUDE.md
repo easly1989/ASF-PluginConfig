@@ -35,7 +35,9 @@ Requires the .NET 10 SDK. Clone with submodules.
   unevenly: `JsonNode.ToJsonString`, `JsonElement.TryGetProperty(string)` and `JsonProperty.NameEquals` are gone, while
   `JsonNode.Parse`, its indexers and `JsonDocument.EnumerateObject` stay; `JsonProperty.WriteTo` is gone, so write
   `WritePropertyName` plus `JsonElement.WriteTo`. MVC too: no `[HttpPut]`, `NotFound(object)` or `Conflict(object)`; use
-  `[HttpPost]` and `StatusCode(code, body)`. Run TrimCheck after any change that touches a framework API.
+  `[HttpPost]` and `StatusCode(code, body)`. Files: no `File.GetUnixFileMode`, `FileSystemInfo.UnixFileMode` or
+  `File.SetUnixFileMode(SafeFileHandle, ...)` (a save copies the original to keep its mode); no `AppDomain.AssemblyLoad`
+  (late assemblies are found by comparing `GetAssemblies()`). `docs/handoff/` has the full list. Run TrimCheck after any change that touches a framework API.
 - Every endpoint lives under `/Api/PluginConfig/`, where ASF's `IPCPassword` middleware applies. The static page
   holds no data. Saves are refused (403) while `IPCPassword` is empty, unless the host's own
   `ASFPluginConfig.AllowWritesWithoutIPCPassword` opt-in is on (`HostSettings`).

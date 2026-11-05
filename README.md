@@ -1,4 +1,4 @@
-﻿# ASF-PluginConfig
+# ASF-PluginConfig
 
 An [ArchiSteamFarm](https://github.com/JustArchiNET/ArchiSteamFarm) (ASF) plugin that gives one page to edit the
 configuration of other installed plugins. Each plugin that wants a form embeds a JSON Schema in its DLL; the host

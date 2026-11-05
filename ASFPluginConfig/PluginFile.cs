@@ -90,8 +90,9 @@ internal static class PluginFile {
 
 	private static bool IsAsciiLetterOrDigit(char c) => c is (>= 'A' and <= 'Z') or (>= 'a' and <= 'z') or (>= '0' and <= '9');
 
-	// A link (or another reparse point) at the directory or the file could point the host anywhere, so neither is followed
-	private static bool IsLink(FileSystemInfo info) => (info.LinkTarget != null) || (info.Exists && ((info.Attributes & FileAttributes.ReparsePoint) != 0));
+	// A link (a symlink, or a junction on Windows) at the directory or the file could point the host anywhere, so neither is
+	// followed. FileAttributes is not in ASF's trimmed builds, LinkTarget is
+	private static bool IsLink(FileSystemInfo info) => info.LinkTarget != null;
 
 	// A file written by a newer host, or by hand into another shape, is never rewritten: a rewrite could lose what it holds
 	private static bool KnownLayout(string path, JsonElement root) {

@@ -115,6 +115,13 @@ const SchemaForm = (() => {
 			}
 		}
 
+		// The label states whether a secret is stored, since its placeholder disappears once the field has text
+		if (schema.writeOnly) {
+			const badge = element("span", { className: "badge", textContent: secretIsSet ? "stored" : "not set" });
+			badge.toggleAttribute("data-set", secretIsSet);
+			wrapper.querySelector("label").append(" ", badge);
+		}
+
 		input.dataset.path = path;
 		input.setAttribute("aria-describedby", describedBy.join(" "));
 		// append() would print a null as the text "null"

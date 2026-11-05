@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.0.2.0 - 2026-11-05
+
+A new look for the `/plugin-config/` page. The API, the saved files and the security properties are unchanged. Requires ASF 6.3.11.7 or later.
+
+### Changed
+
+- The page has a new layout: a side list of plugins (a row of chips on a phone), a card per plugin with a monogram tile and chips for the settings it offers, a header with the plugin version and whether saving is on, and forms in two columns on wide screens. Checkboxes are drawn as switches, and a secret field shows whether a value is stored. The page still uses system fonts only and makes no request outside the host.
+
+### Added
+
+- A plugin shows a dot in the side list while its form holds unsaved edits, and the browser asks before the page is closed or reloaded with such edits.
+- **Discard changes** in the sticky save bar reloads the form from the host.
+
 ## 1.0.1.0 - 2026-11-04
 
 Fixes the three known issues of 1.0.0.0, in whole or in part. Requires ASF 6.3.11.7 or later.

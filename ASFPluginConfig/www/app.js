@@ -14,6 +14,7 @@ const status = document.getElementById("status");
 const login = document.getElementById("login");
 const passwordInput = document.getElementById("password");
 const pluginList = document.getElementById("plugins");
+const rail = document.getElementById("rail");
 const updates = document.getElementById("updates");
 const updateButton = document.getElementById("update");
 const updateResult = document.getElementById("update-result");
@@ -44,6 +45,7 @@ function show(message) {
 function askForPassword(message) {
 	login.hidden = false;
 	pluginList.hidden = true;
+	rail.hidden = true;
 	updates.hidden = true;
 	updateResult.textContent = "";
 	show(message);
@@ -76,6 +78,7 @@ function refused(code) {
 		storage(s => s.removeItem(passwordKey));
 		login.hidden = true;
 		pluginList.hidden = true;
+		rail.hidden = true;
 		updates.hidden = true;
 		show("Access denied by ASF: too many wrong passwords from this address (retry in an hour), or ASF has no IPC password and you are not on localhost.");
 
@@ -101,6 +104,19 @@ async function api(path) {
 	return body.Result;
 }
 
+// Shows on each rail link whether a form of its card holds edits that were not saved
+function refreshDots() {
+	for (const card of pluginList.querySelectorAll("article")) {
+		card.railDot.hidden = !card.querySelector("form.dirty");
+	}
+}
+
+window.addEventListener("beforeunload", event => {
+	if (pluginList.querySelector("form.dirty")) {
+		event.preventDefault();
+	}
+});
+
 // Loads one stored value into a form inside container; saving posts it back with the version it was read at.
 // editor builds the fields from the stored value and reads the value to save; a read that throws with invalid set
 // shows its message and saves nothing
@@ -112,6 +128,7 @@ async function loadForm(container, path, editor, notes, message = "") {
 	loading.setAttribute("role", "status");
 	loading.textContent = "Loading…";
 	container.replaceChildren(loading);
+	refreshDots();
 	const stored = await api(path).catch(error => {
 		loading.textContent = `Cannot reach ASF: ${error.message}`;
 	});
@@ -128,6 +145,7 @@ async function loadForm(container, path, editor, notes, message = "") {
 
 	const version = stored.Version;
 	const form = document.createElement("form");
+	form.className = "editing";
 	form.noValidate = true;
 	form.append(...editor.build(stored));
 	const note = document.createElement("p");
@@ -136,17 +154,35 @@ async function loadForm(container, path, editor, notes, message = "") {
 	const save = document.createElement("button");
 	save.type = "submit";
 	save.textContent = "Save";
+	const discard = document.createElement("button");
+	discard.type = "button";
+	discard.className = "secondary discard";
+	discard.textContent = "Discard changes";
 	const result = document.createElement("p");
 	result.setAttribute("role", "status");
 	result.className = "result";
-	form.append(note, save, result);
+	const actions = document.createElement("div");
+	actions.className = "actions";
+	actions.append(note, save, discard, result);
+	form.append(actions);
 	container.replaceChildren(form);
+	refreshDots();
 	let busy = false;
 	let locked = false;
 
 	if (message) {
 		announce(result, message);
 	}
+
+	form.addEventListener("input", () => {
+		form.classList.add("dirty");
+		refreshDots();
+	});
+
+	discard.addEventListener("click", async () => {
+		await loadForm(container, path, editor, notes, "Changes discarded.");
+		container.querySelector("input:not([type=checkbox]), select, textarea, button")?.focus();
+	});
 
 	form.addEventListener("submit", async event => {
 		event.preventDefault();
@@ -216,6 +252,8 @@ async function loadForm(container, path, editor, notes, message = "") {
 
 				// ASF is going away, so the form cannot reload: lock it rather than leave stale secret states to resend
 				locked = true;
+				form.classList.remove("dirty");
+				refreshDots();
 
 				for (const input of form.querySelectorAll("input[type=password]")) {
 					input.value = "";
@@ -468,32 +506,82 @@ function rawCard() {
 		await listKeys();
 	}));
 
+	railLink(card, "plugin-raw", "Other plugins (raw JSON)");
 	const item = document.createElement("li");
 	item.append(card);
 
 	return item;
 }
 
+// A rail link to a card, with a dot that shows while the card holds unsaved edits
+function railLink(card, id, label, tile) {
+	card.id = id;
+	const link = document.createElement("a");
+	link.href = `#${id}`;
+	const dot = document.createElement("span");
+	dot.className = "dot";
+	dot.hidden = true;
+	dot.title = "Unsaved changes";
+	dot.append(Object.assign(document.createElement("span"), { className: "visually-hidden", textContent: " (unsaved changes)" }));
+	link.append(...(tile ? [tile.cloneNode(true)] : []), label, dot);
+	const item = document.createElement("li");
+	item.append(link);
+	rail.firstElementChild.append(item);
+	card.railDot = dot;
+}
+
+// The tile colour comes from the plugin's own name, so a card keeps its colour between visits
+function tileFor(title) {
+	let hue = 0;
+
+	for (const character of title) {
+		hue = (hue * 31 + character.codePointAt(0)) % 360;
+	}
+
+	const tile = document.createElement("span");
+	tile.className = "tile";
+	tile.style.setProperty("--hue", hue);
+	tile.setAttribute("aria-hidden", "true");
+	tile.textContent = [...title][0]?.toUpperCase() ?? "";
+
+	return tile;
+}
+
 function renderPlugins(plugins) {
 	pluginList.replaceChildren();
+	rail.firstElementChild.replaceChildren();
 
-	for (const plugin of plugins) {
+	for (const [index, plugin] of plugins.entries()) {
 		const card = document.createElement("article");
+		const head = document.createElement("div");
+		head.className = "head";
+		const tile = tileFor(plugin.Title);
 		const title = document.createElement("h2");
 		title.textContent = plugin.Title;
-		card.append(title);
+		const chips = document.createElement("ul");
+		chips.className = "chips";
+		chips.setAttribute("aria-label", "Settings offered");
+
+		for (const label of [plugin.Global && "Global", plugin.Bot && "Per bot"].filter(Boolean)) {
+			chips.append(Object.assign(document.createElement("li"), { className: "chip", textContent: label }));
+		}
+
+		head.append(tile, title, chips);
+		card.append(head);
 
 		if (plugin.Description) {
 			const description = document.createElement("p");
+			description.className = "about";
 			description.textContent = plugin.Description;
 			card.append(description);
 		}
 
 		const meta = document.createElement("p");
 		meta.className = "meta";
-		const scopes = [plugin.Global && "global", plugin.Bot && "per bot"].filter(Boolean).join(" and ");
-		meta.textContent = `${plugin.Assembly} · key ${plugin.ConfigKey} · ${scopes} settings`;
+		meta.textContent = `${plugin.Assembly}, key ${plugin.ConfigKey}`;
 		card.append(meta);
+
+		railLink(card, `plugin-${index}`, plugin.Title, tile);
 
 		if (plugin.Global) {
 			card.append(globalEditor(plugin));
@@ -512,6 +600,8 @@ function renderPlugins(plugins) {
 	if (host.WritesAllowed && !host.WritesWithoutPassword) {
 		pluginList.append(rawCard());
 	}
+
+	rail.hidden = false;
 	pluginList.hidden = false;
 }
 
@@ -556,7 +646,17 @@ async function load(typed) {
 	renderPlugins(plugins);
 	document.getElementById("update-hint").textContent = `ASF looks for updates of the plugins that PluginsUpdateMode and PluginsUpdateList in ASF.json allow, installs them, and ${host.AutoRestart ? "restarts" : "stops (AutoRestart is off)"} if anything was updated. By default that list is empty, so nothing updates until you add plugin assembly names to it.`;
 	updates.hidden = false;
-	show(`${host.Name} ${host.Version} · ${plugins.length} plugin(s) with a config schema`);
+	const toUpdates = document.createElement("li");
+	toUpdates.append(Object.assign(document.createElement("a"), { href: "#updates", textContent: "Plugin updates" }));
+	rail.firstElementChild.append(toUpdates);
+	const version = document.getElementById("version");
+	version.textContent = `${host.Name} ${host.Version}`;
+	version.hidden = false;
+	const saving = document.getElementById("saving");
+	saving.dataset.state = host.WritesWithoutPassword ? "risk" : host.WritesAllowed ? "on" : "off";
+	saving.textContent = host.WritesWithoutPassword ? "Saving without a password" : host.WritesAllowed ? "Saving on" : "Saving off";
+	saving.hidden = false;
+	show(`${plugins.length} plugin${plugins.length === 1 ? "" : "s"} with a config schema.`);
 }
 
 function reportError(error) {

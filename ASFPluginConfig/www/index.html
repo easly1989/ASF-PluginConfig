@@ -8,21 +8,40 @@
 </head>
 <body>
 	<main>
-		<h1 tabindex="-1">Plugin config</h1>
+		<header class="top">
+			<svg class="mark" viewBox="0 0 32 32" aria-hidden="true" focusable="false">
+				<rect width="32" height="32" rx="8"/>
+				<path d="M8 11h9M21 11h3M8 21h3M15 21h9" />
+				<circle cx="19" cy="11" r="2.5"/>
+				<circle cx="13" cy="21" r="2.5"/>
+			</svg>
+			<h1 tabindex="-1">Plugin config</h1>
+			<ul class="pills" aria-label="Host">
+				<li id="version" class="pill" hidden></li>
+				<li id="saving" class="pill" hidden></li>
+			</ul>
+		</header>
 		<p id="banner" class="warning" hidden></p>
 		<form id="login" hidden>
 			<label for="password">IPC password</label>
-			<input id="password" type="password" autocomplete="current-password" required>
-			<button type="submit">Unlock</button>
+			<div class="row">
+				<input id="password" type="password" autocomplete="current-password" required>
+				<button type="submit">Unlock</button>
+			</div>
 		</form>
 		<p id="status" role="status" aria-live="polite">Loading…</p>
-		<ul id="plugins" aria-label="Plugins" hidden></ul>
-		<section id="updates" aria-labelledby="updates-title" hidden>
-			<h2 id="updates-title">Plugin updates</h2>
-			<p class="hint" id="update-hint"></p>
-			<button type="button" id="update" aria-describedby="update-hint">Update plugins</button>
-			<p id="update-result" class="result" role="status"></p>
-		</section>
+		<div class="layout">
+			<nav id="rail" aria-label="Sections" hidden><ul></ul></nav>
+			<div class="content">
+				<ul id="plugins" aria-label="Plugins" hidden></ul>
+				<section id="updates" aria-labelledby="updates-title" hidden>
+					<h2 id="updates-title">Plugin updates</h2>
+					<p class="hint" id="update-hint"></p>
+					<button type="button" class="secondary" id="update" aria-describedby="update-hint">Update plugins</button>
+					<p id="update-result" class="result" role="status"></p>
+				</section>
+			</div>
+		</div>
 	</main>
 	<script src="form.js"></script>
 	<script src="app.js"></script>

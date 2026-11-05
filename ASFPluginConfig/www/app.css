@@ -1,29 +1,37 @@
 :root {
 	color-scheme: light dark;
-	--bg: #f7f7f8;
-	--fg: #1b1b1f;
-	--muted: #5c5c66;
-	--accent: #2563eb;
+	--bg: #edf1f6;
+	--fg: #101a26;
+	--muted: #475a72;
+	--accent: #0a64a8;
 	--on-accent: #ffffff;
 	--surface: #ffffff;
-	--border: #dcdce2;
+	--raised: #f3f6fa;
+	--border: #d3dbe6;
+	--control: #6b7c93;
+	--ok: #15803d;
 	--error: #b42318;
 	--warning-bg: #fff4e5;
 	--warning-fg: #7a4100;
+	--shadow: 0 1px 2px rgb(16 26 38 / 8%), 0 4px 16px rgb(16 26 38 / 6%);
 }
 
 @media (prefers-color-scheme: dark) {
 	:root {
-		--bg: #16161a;
-		--fg: #ececf1;
-		--muted: #a1a1aa;
-		--accent: #60a5fa;
-		--on-accent: #0b1220;
-		--surface: #1f1f25;
-		--border: #34343c;
-		--error: #f97066;
+		--bg: #0e1520;
+		--fg: #e8eef6;
+		--muted: #a3b3c7;
+		--accent: #6cc3f5;
+		--on-accent: #06131f;
+		--surface: #151f2c;
+		--raised: #1c293a;
+		--border: #2a3a4f;
+		--control: #7089a8;
+		--ok: #4ade80;
+		--error: #ff9b92;
 		--warning-bg: #3a2a12;
 		--warning-fg: #fdd9a8;
+		--shadow: none;
 	}
 }
 
@@ -31,37 +39,199 @@
 	display: none !important;
 }
 
+html {
+	scroll-padding: 1rem 0 6rem;
+}
+
 body {
 	margin: 0;
 	background: var(--bg);
 	color: var(--fg);
-	font: 16px/1.5 system-ui, sans-serif;
+	font: 16px/1.5 "Segoe UI Variable Text", system-ui, sans-serif;
 }
 
 main {
-	max-width: 48rem;
+	max-width: 70rem;
 	margin: 0 auto;
-	padding: 1.5rem 1rem;
+	padding: 1.5rem 1rem 3rem;
 }
 
-label {
-	display: block;
+/* Header */
+
+.top {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 0.5rem 0.875rem;
+	margin-bottom: 0.5rem;
+}
+
+.mark {
+	width: 2.25rem;
+	height: 2.25rem;
+	flex: none;
+}
+
+.mark rect {
+	fill: var(--accent);
+}
+
+.mark path {
+	stroke: var(--on-accent);
+	stroke-width: 2;
+	stroke-linecap: round;
+	fill: none;
+}
+
+.mark circle {
+	fill: var(--accent);
+	stroke: var(--on-accent);
+	stroke-width: 2;
+}
+
+h1 {
+	margin: 0;
+	font-size: 1.75rem;
+	font-weight: 650;
+	letter-spacing: -0.015em;
+	line-height: 1.2;
+}
+
+.pills {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.5rem;
+	margin: 0 0 0 auto;
+	padding: 0;
+	list-style: none;
+}
+
+.pill {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.5rem;
+	padding: 0.25rem 0.75rem;
+	border: 1px solid var(--border);
+	border-radius: 999px;
+	background: var(--surface);
+	color: var(--muted);
+	font-size: 0.875rem;
+}
+
+.pill[data-state]::before {
+	content: "";
+	width: 0.5rem;
+	height: 0.5rem;
+	border-radius: 50%;
+	background: var(--muted);
+}
+
+.pill[data-state=on]::before {
+	background: var(--ok);
+	animation: connect 1.2s ease-out 1;
+}
+
+.pill[data-state=risk]::before {
+	background: var(--warning-fg);
+}
+
+@keyframes connect {
+	0% {
+		box-shadow: 0 0 0 0 var(--ok);
+	}
+
+	100% {
+		box-shadow: 0 0 0 0.75rem transparent;
+	}
+}
+
+#status {
+	margin: 0 0 1rem;
 	color: var(--muted);
 }
 
-input, button {
-	font: inherit;
-	min-height: 2.75rem;
+/* Layout: a rail of anchors beside the cards, a row of chips above them on a phone */
+
+.layout {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr);
+	gap: 1rem;
 }
 
-button {
-	background: var(--accent);
-	color: var(--on-accent);
-	border: 0;
-	border-radius: 0.375rem;
-	padding: 0 1rem;
-	cursor: pointer;
+.content {
+	display: grid;
+	gap: 1rem;
+	align-content: start;
+	min-width: 0;
 }
+
+#rail ul {
+	display: flex;
+	gap: 0.5rem;
+	margin: 0;
+	padding: 0 0 0.25rem;
+	list-style: none;
+	overflow-x: auto;
+}
+
+#rail a {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	min-height: 2.75rem;
+	box-sizing: border-box;
+	padding: 0 0.75rem 0 0.5rem;
+	border: 1px solid var(--border);
+	border-radius: 0.75rem;
+	background: var(--surface);
+	color: var(--fg);
+	text-decoration: none;
+	white-space: nowrap;
+}
+
+#rail a:hover {
+	border-color: var(--accent);
+}
+
+#rail .tile {
+	width: 1.75rem;
+	height: 1.75rem;
+	border-radius: 0.5rem;
+	font-size: 0.875rem;
+}
+
+.dot {
+	width: 0.5rem;
+	height: 0.5rem;
+	margin-left: auto;
+	border-radius: 50%;
+	background: var(--warning-fg);
+}
+
+@media (min-width: 56rem) {
+	.layout {
+		grid-template-columns: 14rem minmax(0, 1fr);
+		gap: 1.5rem;
+	}
+
+	#rail {
+		position: sticky;
+		top: 1rem;
+		align-self: start;
+	}
+
+	#rail ul {
+		flex-direction: column;
+		overflow: visible;
+	}
+
+	#rail a {
+		white-space: normal;
+		overflow-wrap: anywhere;
+	}
+}
+
+/* Cards */
 
 #plugins {
 	display: grid;
@@ -71,47 +241,181 @@ button {
 	padding: 0;
 }
 
-article {
-	background: var(--surface);
-	border: 1px solid var(--border);
-	border-radius: 0.5rem;
-	padding: 1rem;
+#plugins > li {
+	min-width: 0;
 }
 
-article h2 {
-	margin: 0 0 0.25rem;
+article, #updates, #login {
+	background: var(--surface);
+	border: 1px solid var(--border);
+	border-radius: 1rem;
+	box-shadow: var(--shadow);
+	padding: 1.25rem;
+}
+
+#login {
+	margin-bottom: 1rem;
+}
+
+.head {
+	display: grid;
+	grid-template-columns: auto 1fr;
+	gap: 0.25rem 0.875rem;
+	align-items: center;
+}
+
+.tile {
+	grid-row: span 2;
+	display: grid;
+	place-items: center;
+	width: 2.75rem;
+	height: 2.75rem;
+	border-radius: 0.75rem;
+	background: hsl(var(--hue) 55% 90%);
+	color: hsl(var(--hue) 70% 25%);
+	font-weight: 700;
+	font-size: 1.125rem;
+	flex: none;
+}
+
+@media (prefers-color-scheme: dark) {
+	.tile {
+		background: hsl(var(--hue) 40% 22%);
+		color: hsl(var(--hue) 85% 82%);
+	}
+}
+
+article h2, #updates h2 {
+	margin: 0;
 	font-size: 1.25rem;
+	font-weight: 650;
+	letter-spacing: -0.01em;
+	line-height: 1.3;
+}
+
+.chips {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.375rem;
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.chip {
+	padding: 0 0.625rem;
+	border-radius: 999px;
+	background: var(--raised);
+	color: var(--muted);
+	font-size: 0.8125rem;
+	line-height: 1.5rem;
 }
 
 article p {
 	margin: 0.25rem 0;
 }
 
+.about {
+	margin-top: 0.75rem !important;
+}
+
 .meta {
+	margin: 0.5rem 0 0 !important;
 	color: var(--muted);
-	font-size: 0.875rem;
+	font: 0.8125rem/1.5 ui-monospace, "Cascadia Code", Consolas, monospace;
 	overflow-wrap: anywhere;
 }
 
+/* Collapsible settings */
+
 details {
 	margin-top: 0.75rem;
-	border-top: 1px solid var(--border);
-	padding-top: 0.5rem;
+	border: 1px solid var(--border);
+	border-radius: 0.75rem;
+	background: var(--raised);
 }
 
 summary {
 	cursor: pointer;
 	min-height: 2.75rem;
+	padding: 0 1rem;
 	display: flex;
 	align-items: center;
+	gap: 0.75rem;
 	font-weight: 600;
+	list-style: none;
+	border-radius: 0.75rem;
+}
+
+summary::-webkit-details-marker {
+	display: none;
+}
+
+summary::after {
+	content: "";
+	width: 0.5rem;
+	height: 0.5rem;
+	margin-left: auto;
+	border: solid var(--muted);
+	border-width: 0 2px 2px 0;
+	transform: rotate(45deg);
+	transition: transform 0.15s;
+}
+
+details[open] > summary::after {
+	transform: rotate(-135deg);
+}
+
+.editor {
+	padding: 0 1rem 1rem;
+}
+
+details[open] > .editor {
+	animation: reveal 0.18s ease-out;
+}
+
+@keyframes reveal {
+	from {
+		opacity: 0;
+	}
+}
+
+/* Forms */
+
+form.editing {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(min(100%, 16rem), 1fr));
+	gap: 0 1.25rem;
+	align-items: start;
+}
+
+form.editing > fieldset, form.editing > .actions {
+	grid-column: 1 / -1;
+}
+
+label {
+	display: block;
+	color: var(--muted);
+	font-size: 0.9375rem;
+}
+
+input, button, select, textarea {
+	font: inherit;
 }
 
 fieldset {
+	min-width: 0;
 	border: 1px solid var(--border);
-	border-radius: 0.5rem;
+	border-radius: 0.75rem;
 	margin: 0.75rem 0;
-	padding: 0.5rem 0.75rem;
+	padding: 0.25rem 1rem 0.75rem;
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(min(100%, 14rem), 1fr));
+	gap: 0 1.25rem;
+}
+
+fieldset > legend, fieldset > .hint {
+	grid-column: 1 / -1;
 }
 
 legend {
@@ -120,36 +424,94 @@ legend {
 }
 
 .field {
-	margin: 0.75rem 0;
+	margin: 0.75rem 0 0;
+	min-width: 0;
 }
 
-.field input:not([type=checkbox]), .field select, .field textarea {
+.field input:not([type=checkbox]), .field select, .field textarea, #password {
 	box-sizing: border-box;
 	width: 100%;
-	font: inherit;
 	min-height: 2.75rem;
-	padding: 0.25rem 0.5rem;
-	border: 1px solid var(--border);
-	border-radius: 0.375rem;
+	margin-top: 0.25rem;
+	padding: 0.25rem 0.75rem;
+	border: 1px solid var(--control);
+	border-radius: 0.5rem;
 	background: var(--bg);
 	color: var(--fg);
 }
 
+.field textarea {
+	padding-top: 0.5rem;
+}
+
+.field input[aria-invalid], .field select[aria-invalid], .field textarea[aria-invalid] {
+	border-color: var(--error);
+	box-shadow: 0 0 0 1px var(--error);
+}
+
+.badge {
+	margin-left: 0.5rem;
+	padding: 0 0.5rem;
+	border-radius: 999px;
+	background: var(--raised);
+	color: var(--muted);
+	font-size: 0.75rem;
+	line-height: 1.25rem;
+	vertical-align: 0.0625rem;
+}
+
+.badge[data-set] {
+	color: var(--ok);
+	box-shadow: inset 0 0 0 1px currentColor;
+}
+
+/* A checkbox drawn as a switch: still the native input, so keyboard and screen readers behave the same */
+
 .field.checkbox {
 	display: flex;
 	align-items: center;
-	gap: 0.5rem;
+	gap: 0.75rem;
 	flex-wrap: wrap;
+	min-height: 2.75rem;
 }
 
 .field.checkbox input {
-	width: 1.25rem;
-	height: 1.25rem;
+	appearance: none;
+	flex: none;
+	position: relative;
+	width: 2.5rem;
+	height: 1.5rem;
 	margin: 0;
+	border-radius: 999px;
+	background: var(--control);
+	cursor: pointer;
+	transition: background-color 0.15s;
+}
+
+.field.checkbox input::after {
+	content: "";
+	position: absolute;
+	top: 0.1875rem;
+	left: 0.1875rem;
+	width: 1.125rem;
+	height: 1.125rem;
+	border-radius: 50%;
+	background: var(--surface);
+	transition: transform 0.15s;
+}
+
+.field.checkbox input:checked {
+	background: var(--accent);
+}
+
+.field.checkbox input:checked::after {
+	transform: translateX(1rem);
+	background: var(--on-accent);
 }
 
 .field.checkbox label {
 	color: var(--fg);
+	cursor: pointer;
 }
 
 .field.checkbox .hint, .field.checkbox .error {
@@ -168,8 +530,100 @@ legend {
 	margin: 0.25rem 0 0;
 }
 
+/* The save bar stays in view while a long form scrolls */
+
+.actions {
+	position: sticky;
+	bottom: 0;
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 0.5rem 0.75rem;
+	margin: 1rem -1rem -1rem;
+	padding: 0.75rem 1rem;
+	border-top: 1px solid var(--border);
+	border-radius: 0 0 0.75rem 0.75rem;
+	background: var(--raised);
+}
+
+.actions .hint {
+	flex-basis: 100%;
+	margin: 0;
+}
+
+.actions .result {
+	margin: 0;
+	flex: 1 1 12rem;
+}
+
+.discard {
+	display: none;
+}
+
+form.dirty .discard {
+	display: inline-block;
+}
+
+form.dirty .actions .hint::before {
+	content: "Unsaved changes. ";
+	color: var(--warning-fg);
+	font-weight: 600;
+}
+
 .result:empty {
 	display: none;
+}
+
+/* Buttons */
+
+button {
+	min-height: 2.75rem;
+	padding: 0 1.25rem;
+	border: 1px solid transparent;
+	border-radius: 0.625rem;
+	background: var(--accent);
+	color: var(--on-accent);
+	font-weight: 600;
+	cursor: pointer;
+}
+
+button:hover {
+	filter: brightness(1.08);
+}
+
+button.secondary {
+	border-color: var(--control);
+	background: transparent;
+	color: var(--fg);
+}
+
+button.secondary:hover {
+	border-color: var(--accent);
+	filter: none;
+}
+
+button[aria-disabled=true] {
+	opacity: 0.6;
+	cursor: progress;
+}
+
+button[aria-disabled=true]::before {
+	content: "";
+	display: inline-block;
+	width: 0.875rem;
+	height: 0.875rem;
+	margin-right: 0.5rem;
+	border: 2px solid currentColor;
+	border-right-color: transparent;
+	border-radius: 50%;
+	vertical-align: -0.125rem;
+	animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+	to {
+		transform: rotate(360deg);
+	}
 }
 
 :focus-visible {
@@ -186,20 +640,79 @@ legend {
 	white-space: nowrap;
 }
 
-button[aria-disabled=true] {
-	opacity: 0.6;
-	cursor: progress;
-}
+/* Banner */
 
 .warning {
+	display: flex;
+	gap: 0.75rem;
+	margin: 0 0 1rem;
 	background: var(--warning-bg);
 	color: var(--warning-fg);
-	border-left: 4px solid currentColor;
-	border-radius: 0.375rem;
+	border: 1px solid currentColor;
+	border-left-width: 6px;
+	border-radius: 0.75rem;
 	padding: 0.75rem 1rem;
+}
+
+.warning::before {
+	content: "!" / "";
+	flex: none;
+	width: 1.5rem;
+	height: 1.5rem;
+	border-radius: 50%;
+	background: var(--warning-fg);
+	color: var(--warning-bg);
+	display: grid;
+	place-items: center;
+	font-weight: 700;
+	line-height: 1;
+}
+
+#login .row {
+	display: flex;
+	gap: 0.75rem;
+}
+
+#login #password {
+	margin: 0.25rem 0 0;
+}
+
+#login .row button {
+	margin-top: 0.25rem;
+}
+
+#updates .hint {
+	margin-bottom: 0.75rem;
+}
+
+#updates .result {
+	margin: 0.75rem 0 0;
 }
 
 textarea.raw {
 	font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
 	tab-size: 2;
+}
+
+@media (forced-colors: active) {
+	.field.checkbox input {
+		border: 1px solid ButtonText;
+	}
+
+	.field.checkbox input:checked {
+		background: Highlight;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	*, *::before, *::after {
+		animation: none !important;
+		transition: none !important;
+	}
+}
+
+@media (prefers-reduced-motion: no-preference) {
+	html {
+		scroll-behavior: smooth;
+	}
 }

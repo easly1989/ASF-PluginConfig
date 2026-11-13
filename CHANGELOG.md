@@ -2,13 +2,19 @@
 
 ## 1.1.0.0 - 2026-11-05
 
-Adds a settings file per plugin, storage standard v1 ([#31](https://github.com/easly1989/ASF-PluginConfig/issues/31)). Requires ASF 6.3.11.7 or later.
+Adds a settings file per plugin, storage standard v1 ([#31](https://github.com/easly1989/ASF-PluginConfig/issues/31)), and a new look for the `/plugin-config/` page ([#32](https://github.com/easly1989/ASF-PluginConfig/pull/32)). Requires ASF 6.3.11.7 or later.
+
+### Changed
+
+- The page has a new layout: a side list of plugins (a row of chips on a phone), a card per plugin with a monogram tile and chips for the settings it offers, a header with the plugin version and whether saving is on, and forms in two columns on wide screens. Checkboxes are drawn as switches, and a secret field shows whether a value is stored. The page still uses system fonts only and makes no request outside the host.
 
 ### Added
 
 - A plugin can keep its settings in `config/plugins/<AssemblyName>.json` instead of `ASF.json` and the bot files, by declaring `"storage": "file"` and `"formatVersion": 1` in its schema. The file holds `{ "formatVersion": 1, "global": {}, "bots": {} }`; the first save creates it. Plugins without these keys work exactly as before. The README has the contract and a reader to copy.
 - `"reload": "restart"` (the default for file storage) makes the host restart ASF after a save, or stop it when `AutoRestart` is off, since ASF does not watch that file; with file storage a bot save restarts all of ASF. `"reload": "live"` restarts nothing: the plugin applies its file itself.
 - Every save's answer now carries `Restart`: `"asf"`, `"bot"` or `"none"`, telling the page what happens next. The plugin list gives each plugin's `Storage` and `Reload`.
+- A plugin shows a dot in the side list while its form holds unsaved edits, and the browser asks before the page is closed or reloaded with such edits.
+- **Discard changes** in the sticky save bar reloads the form from the host.
 
 ### Security
 
@@ -19,18 +25,9 @@ Adds a settings file per plugin, storage standard v1 ([#31](https://github.com/e
 - The temp file of a save is created with `CreateNew` after a leftover one is deleted, on every OS, so a link planted at its path is not followed.
 - A new plugin file gets the default mode; the README tells operators to pre-create a file that will hold secrets with the mode they want. An existing file keeps its mode.
 
-## 1.0.2.0 - 2026-11-05
+### Known issues
 
-A new look for the `/plugin-config/` page. The API, the saved files and the security properties are unchanged. Requires ASF 6.3.11.7 or later.
-
-### Changed
-
-- The page has a new layout: a side list of plugins (a row of chips on a phone), a card per plugin with a monogram tile and chips for the settings it offers, a header with the plugin version and whether saving is on, and forms in two columns on wide screens. Checkboxes are drawn as switches, and a secret field shows whether a value is stored. The page still uses system fonts only and makes no request outside the host.
-
-### Added
-
-- A plugin shows a dot in the side list while its form holds unsaved edits, and the browser asks before the page is closed or reloaded with such edits.
-- **Discard changes** in the sticky save bar reloads the form from the host.
+- A write by ASF in the instant between the last check before the file swap and the move is still lost ([#18](https://github.com/easly1989/ASF-PluginConfig/issues/18)). The window was narrowed in 1.0.1.0 and again in [#28](https://github.com/easly1989/ASF-PluginConfig/pull/28). Closing it needs a lock across processes, and ASF takes none on its config files.
 
 ## 1.0.1.0 - 2026-11-04
 
